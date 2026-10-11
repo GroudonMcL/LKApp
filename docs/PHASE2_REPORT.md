@@ -98,3 +98,123 @@ probe/integration scripts with explicit opt-in), reading templates (observed: li
 5. **Batch engine and reporting** — shared item states, resume/cancel/retry, review queue,
    history and exports.
 6. **Regression, docs.**
+
+---
+
+# Milestone reports
+
+All milestones were implemented in order, each tested, committed and pushed before the next.
+Live checks used only throwaway pages under the sandbox page of the test project, deleted
+afterwards. Test count at the end: **200 unit/contract tests** (`npm run check`) and **6 live
+integration tests** (opt-in).
+
+## Milestone 1 — Batch import
+
+**Implemented:** multi-file batches (Markdown, text, JSON, HTML, `.docx`, text PDFs; images and
+scanned PDFs by AI transcription on request); per-file upload; record extraction rules in
+recipes (whole, heading, statblock, separator, paragraph, JSON list) with source file, section
+and page kept for attribution; one import job and draft per record; recipe version pinned per
+batch; AI result cache by input fingerprint; duplicate matching (exact / strong / ambiguous /
+none, plus duplicates inside the batch) with the recipe's duplicate policy; recipe defaults,
+attribution rules, uncertain/unmapped handling; dry run, approve selected, paced run with a
+freshness check before each write, reconciliation by reading, retry only after re-approval;
+CSV/JSON results and dry-run reports.
+**Verified live:** 4 files → 8 records, an exact duplicate detected and skipped, 6 pages
+created from the copied Statblock layout and read back (then deleted).
+**Limitations:** `.doc`/`.odt`/`.rtf`/spreadsheets refused with advice; AI drafting at most the
+batch's AI limit per run (25 by default).
+
+## Milestone 2 — Wiki Health
+
+**Implemented:** resumable, read-only audits by scope (all, page types, folder, criteria, open
+findings), optional content reading with version fingerprints (unchanged pages not re-read);
+checks for untagged pages, similar/misspelt/plural tags, layout and expected fields per page
+type, likely duplicates, broken links, naming, attribution and unreadable content; persistent
+findings with severity and certainty, filters, dismiss / intentional (quiet until the page
+changes), maintenance queue, resolution when no longer seen; dashboard; exports.
+**Verified live:** full audit of 242 pages.
+**Limitation:** no template is recorded on pages, so the layout check compares each page with
+the layout chosen for its page type.
+
+## Milestone 3 — Tagging assistant
+
+**Implemented:** taxonomy settings with policies A (existing only), B (new tags with explicit
+approval), C (approved taxonomy with aliases and page-type limits); rules; suggestions from
+rules, page type, folder, siblings, links, page text and optional AI, each with source,
+certainty and reason; only sure suggestions for existing allowed tags pre-ticked; per-page
+review, filters, approval (new tags need a separate tick), dry run, paced apply with a fresh
+read before each write (changed pages go back to review), merge that never drops tags unless
+a removal is ticked, read-back, reconciliation, retry after re-approval, exports.
+**Verified live:** on two temporary pages: new-tag gate, reconciliation of an unknown outcome,
+re-approval, write and read-back, existing tag kept.
+**Limitation:** `resources.update` has no version check (documented); the app narrows the window
+with read-before and read-back.
+
+## Milestone 4 — Template migration
+
+**Implemented:** migration settings in recipes; jobs for one named page (test) or a selection;
+target layouts clearly labelled (copied LegendKeeper template, example-page layout, app-defined);
+page reader that turns readable text into Markdown and keeps everything else (images, secrets,
+tables, embeds, unreadable blocks…) to send back by id; drafting with the recipe (structural, or
+AI told to reorganise, not rewrite), editable in the draft editor; word-for-word comparison
+(every sentence, number and link), relabelled/moved/split fields, unmapped text kept in a notes
+section (or blocking, per recipe), lost links added back, number changes needing explicit
+acknowledgement, reworded-text warning; side-by-side preview; approval tied to the exact
+proposal and draft revision; recovery record saved before each write; `replaceBlocks` with
+`ifMatch`; read-back; reconciliation; restore (only while unchanged, or with explicit overwrite);
+original download; exports. Migration drafts can never be created as new pages.
+**Verified live:** an old-style statblock page migrated in place and restored identical.
+**Limitations:** underline/strikethrough/code formatting and dividers not carried over
+(reported); tables kept as is; first page document only; text blocks get new block ids.
+
+## Milestone 5 — Reliability, review queue, history, exports
+
+**Implemented:** central review queue (uncertain writes, failures, possible duplicates, drafts,
+tag suggestions, migration number changes and unmapped text, pages changed after an audit,
+pages that no longer exist) with severity, reason, link and filters; dashboard count; job list
+for all kinds with end-of-job summary, recipe version, AI models and times; history export;
+switched-off writes reported by dry runs. Resumption after a restart (items in preparation back
+to pending, writes in flight to *needs reconciliation*, checked first) was already part of M1.
+
+## Milestone 6 — Regression, documentation, live checks
+
+- `npm run check`: typecheck and 200 tests pass. Production build succeeds; all pages and
+  APIs answer in the production server; cross-site writes are refused (403).
+- Browser bundles scanned: no API key values and no server-only code (only the *name*
+  `LEGENDKEEPER_API_KEY` in help text).
+- Database upgrade from a Phase 1 database tested (recipes, versions and imports kept; new
+  settings defaulted); the live test database was upgraded in place.
+- Live integration tests: 6/6 (read-only checks, page creation with duplicate refusal, tag
+  replacement, version-checked content replacement, stale-version refusal, exact restore).
+- README and CAPABILITIES updated (features, AI data disclosure, batch statuses, recovery,
+  exports, backups and upgrades, known SDK limitations, troubleshooting, tests).
+
+# Definition of done — status
+
+| Requirement | Status |
+| --- | --- |
+| Multiple files in one job; multiple records per document; recipes control the transformation | Done (live) |
+| Drafts reviewable and editable; duplicates and ambiguous matches identified; results and errors recorded | Done (live) |
+| Existing pages scanned; untagged pages found; template inconsistencies detected; findings filtered and kept | Done (live); layout check uses the chosen layout per page type (no template is recorded on pages) |
+| Tag suggestions use the existing taxonomy; new tags distinguished; approved changes applied with verified SDK operations; existing tags kept; failures inspectable and safely retried | Done (live) |
+| Migration configured and tested on one page; many pages selectable; before/after comparison; unmapped content kept or flagged; numbers protected; approved migrations applied safely | Done (live, including restore) |
+| Dry runs; nothing without approval; interrupted jobs resumable; uncertain writes reconciled first; audit history | Done |
+| Tests pass without modifying real campaign resources | Done (unit tests use mocks; live tests only touch their own sandbox pages) |
+| Phase 1 intact; migrations keep data; no secrets exposed; README updated; unsupported functionality identified | Done |
+
+# Manual steps for you
+
+- **Revoke the test API key** used during development (Project Settings → Developers → API
+  Keys) and create your own for daily use; put it in `.env.local`.
+- Add an Anthropic key if you want the AI options; nothing AI-related has run against the real
+  API yet.
+- Back up the `data/` folder before upgrading the app (it is upgraded automatically on start).
+- In the test project, the page *Goblin Underboss (layout test)* from Phase 1 is still in the
+  sandbox; delete it whenever you like.
+
+# What remains / possible next steps
+
+- A first real AI run (drafting, transcription, AI tag suggestions) with your Anthropic key.
+- Migration of tables into fields, and carrying underline/strikethrough formatting.
+- Using `resources.createMany` for very large imports (would trade per-record outcomes for speed).
+- Re-pointing links that target specific blocks, if you use those.

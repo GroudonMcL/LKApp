@@ -17,6 +17,20 @@ documentation as <https://www.legendkeeper.com/developers/>.
 > Additionally: request bodies are validated against the official OpenAPI schema
 > (*spec*) and the real SDK is tested against a local documented-API server (*contract*).
 > Not yet exercised live: the AI transformation (no Anthropic key was available).
+>
+> **Phase 2 (11 Oct 2026)**, same test project, all on throwaway pages under the sandbox page,
+> deleted afterwards:
+>
+> - Batch import of 4 files (Markdown, Word, HTML, PDF) → 8 records; an exact duplicate was
+>   detected and skipped; 6 pages created from the copied *Statblock* layout and read back.
+> - Wiki Health: a full read-only audit of 242 pages (content read with version fingerprints).
+> - Tagging: tags replaced through the app (including a new tag after explicit approval), an
+>   uncertain outcome reconciled by reading, existing tags kept, read back.
+> - Template migration: an older-style statblock page migrated in place into the *Statblock*
+>   layout (same id, name, parent and tags; a secret block kept by id), then restored; the
+>   restored page read back **identical** to the original, block ids included.
+> - `npm run test:integration` with writes and cleanup — **6/6** passed (adds tag replacement,
+>   version-checked content replacement, stale-version refusal and exact restore).
 
 ## Roles, plans and limits (from the official guide)
 
@@ -31,23 +45,23 @@ documentation as <https://www.legendkeeper.com/developers/>.
 
 Legend — **Verified**: *live* = against the real LegendKeeper test project; *spec* = validated against the OpenAPI schema; *contract* = real SDK against a local server following the docs; *rehearsal* = full UI run against the rehearsal server.
 
-| Capability | API (v3) | SDK 4.0.0 | Role / plan | Used in Phase 1 | Verified | Limitations / notes |
+| Capability | API (v3) | SDK 4.0.0 | Role / plan | Used by the app | Verified | Limitations / notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | Project identity & connection | `GET /projects`, `GET /projects/{id}` | `lk.project()`, `projects.list/get` | Paid plan | Yes — connection test (`project()` + fresh `projects.get`) | **live**, contract | `lk.project()` is cached per client, so the app pings with `projects.get` to prove the connection is live. |
 | Resource listing & pagination | `GET /resources?limit&cursor&parentId` | `resources.list` → `Page` | Member (sees only reachable, non-hidden) | Yes — background scan, live browsing | **live** (235 pages, 3 pages of 100), contract | Max 100 per page; **no server-side filter by name or tag** → the app keeps a local metadata index. Cursor is opaque. |
 | Resource retrieval & metadata | `GET /resources/{id}` | `resources.get` | Member | Yes — page detail, parent & link checks, read-back | **live**, contract | Returns documents and sidebar properties. |
 | Document listing & reading | `GET …/docs`, `GET …/docs/{id}` | `documents.list/get` | Member (hidden docs: Admin) | Partly — documents come from `resources.get` | contract | |
 | Page blocks: reading | `GET …/docs/{id}/blocks` | `documents.getBlocks`; readers `plainText`, `walk`, `findBlock` | Member | Yes — page browser, read-back | **live**, contract | Returns `version` and `text`. Content the API cannot express reads as `unsupported` (read-only). |
-| Page blocks: writing | `PUT …/blocks` (replace), `POST/PUT/PATCH/DELETE …/blocks/{id}` | `documents.replaceBlocks`, `blocks.*`, builders in `@legendkeeper/sdk/blocks` | Member with edit rights | **No** (Phase 1 never edits existing pages) | **live** (probe only: `replaceBlocks` with `ifMatch`, stale version → 412, `blocks.insert`) | `ifMatch` versioned writes supported; replacing a page drops `unsupported` blocks unless echoed by id. Use single-block ops for later "migration" phases. |
+| Page blocks: writing | `PUT …/blocks` (replace), `POST/PUT/PATCH/DELETE …/blocks/{id}` | `documents.replaceBlocks`, `blocks.*`, builders in `@legendkeeper/sdk/blocks` | Member with edit rights | **Yes — template migration and restore**, always `replaceBlocks` with `ifMatch` | **live** (probe; Phase 2 app run; integration test: stale version → 412 `VersionMismatchError`, blocks written back exactly as read come back identical, a block moved into a new container keeps its id) | Replacing a page drops `unsupported` blocks unless echoed by id; the migration echoes them. Single-block operations are not used. |
 | Resource creation | `POST /resources` (with `documents[].blocks`) | `resources.create` | Member under an editable parent; **Admin at the top level** | **Yes — the one write** | **live** (planned 24-char id accepted, idempotent replay returns the same page, reused id → 409), spec, contract | Accepts client-chosen `id` (cuid2, 8 or 24 chars) and `Idempotency-Key`. Duplicate id → `409 DUPLICATE_ID` (also for ids of deleted resources in the trash). |
-| Resource updating | `PATCH /resources/{id}` | `resources.update` | Member with edit rights | No | **live** (probe) | `tags`/`aliases` replace the whole list. No `ifMatch` on resource fields — a later phase must re-read before updating. |
-| Bulk creation | `POST /resources/batch` | `resources.createMany` (≤100) | as create | No (out of scope) | — | Counts as one write; 600 items/min budget. |
+| Resource updating | `PATCH /resources/{id}` | `resources.update` | Member with edit rights | **Yes — tags only** (tagging assistant; migration only if the recipe adds tags, and restore) | **live** (probe; Phase 2 app run; integration test) | `tags`/`aliases` replace the whole list and there is **no `ifMatch`**: the app reads right before, merges, writes, and reads back. A tag update changes the resource's `updatedAt`. |
+| Bulk creation | `POST /resources/batch` | `resources.createMany` (≤100) | as create | **No** — batch imports create one page per approved record | — | Counts as one write; not used so that every record keeps its own approval, duplicate protection, outcome and retry. |
 | Delete / restore | `DELETE /resources/{id}`, `…/restore` | `resources.delete/restore` | Edit rights; restore needs Admin | **No — never used by the app** | **live** (probe: delete, restore, `HAS_CHILDREN`, cascade cleanup) | Only the opt-in integration test cleanup deletes, and only its own test page. |
 | Tags: listing | `GET /tags` | `tags.list` | **Admin** | Yes — tag audit, suggestions | **live** (24 tags), contract | Member keys get `403`; the app falls back to tags counted from the local index and says so. |
-| Tags: updating | via `resources.update` / `resources.create` | yes | edit rights | Only on create | **live**, spec | No dedicated tag endpoint. Tags match **exactly, including case**. |
+| Tags: updating | via `resources.update` / `resources.create` | yes | edit rights | On create, and the tagging assistant | **live**, spec | No dedicated tag endpoint. Tags match **exactly, including case**. A tag exists only while a page carries it, so “approving a new tag” means approving that text on a page. |
 | Hierarchy / parents | `parentId` on list/create; `POST …/move` | `resources.move` | edit rights | Parent on create; tree in browser | **live** | Siblings ordered by `rank` (compare as plain strings). |
 | Search | `GET /search?q&limit` | `search.search` | Member (reachable only) | Yes — live search, manual link lookup, duplicate check | **live**, contract | One page, ≤100 results; matches names, aliases and content. **A resource appears once per matching document** — the app de-duplicates. |
-| References / backlinks | mention runs in blocks; `links`/collection blocks; collection filter `scope: 'edges'` | `mention()`, `links()`, `collection()` | — | Mentions + `links` property on create | **live** (mentions read back with the target's current `name`) | **No endpoint lists backlinks directly**; a relationship graph would need reading pages' blocks. |
+| References / backlinks | mention runs in blocks; `links`/collection blocks; collection filter `scope: 'edges'` | `mention()`, `links()`, `collection()` | — | Mentions + `links` property on create; outgoing links read for the audit (broken links) and kept by migrations | **live** (mentions read back with the target's current `name`; the audit found links to pages missing from the project) | **No endpoint lists backlinks directly**; outgoing links are read from each page's blocks. |
 | Sidebar properties | `…/properties[/{id}][/rows]` | `properties.*` | edit rights for writes | Read only (page detail) | **live** (probe: create + list) | Row writes take `ifMatch`. Style guide prefers an **infobox** over sidebar properties for single-page wikis. |
 | Infobox / property blocks | infobox block + `…/blocks/{id}/properties` | `infobox()`, `property()`, `keyValue()`, `blocks.*Property*` | edit rights | Yes — facts infobox on created pages | **live**, spec | |
 | Templates: discovery / application | **Undocumented** (read) / **None** (apply) | Read: yes (live, Oct 2026) | — | Copy layout, fill locally | — | No template endpoints. Observed: `resources.list` returns templates with `parentId: "templates"` (e.g. *Statblock*), and `resources.get` / `documents.getBlocks` read them like pages. There is no "create from template"; the app copies the block layout and fills it in. Undocumented, so the app only uses it to *suggest* templates; any page can serve as the example instead. |
@@ -84,3 +98,28 @@ Legend — **Verified**: *live* = against the real LegendKeeper test project; *s
 - Related names are separate pages (Iggwilv, Tasha, Natasha, Natalie, Nathalia), and there is
   a near-duplicate tag (*Entitiyy* next to *Entity*) — good material for Phase 2 tag clean-up.
 - Server-generated resource ids are 8 characters; client-chosen 24-character ids are accepted.
+
+## Phase 2 observations (live, Oct 2026)
+
+- **Content edits do not change `updatedAt`** on the resource or the document; only the
+  document `version` changes. The audit and migrations therefore use the document version as
+  the content fingerprint. Tag updates do change the resource's `updatedAt`.
+- `replaceBlocks` with a stale `ifMatch` is refused with 412 and writes nothing. Blocks written
+  back exactly as `getBlocks` returned them (ids, row ranks, mention names included) are
+  accepted, and the page reads back byte-for-byte identical — this is what makes migration
+  restore possible. A block sent with its id inside a new parent (e.g. an infobox row moved into
+  a new infobox) keeps its id.
+- `unsupported` blocks cannot be created (`UNSUPPORTED_KIND`); they survive a replacement only
+  when echoed by id while the document still holds them.
+- A full audit of the test project found many links pointing at pages that do not exist in it
+  (pages copied from another project keep their old link targets); these are reported as
+  broken links, never “fixed” automatically.
+- Batch writes are paced at ~100/min and audit reads at ~4/s, below the 120 writes and 300
+  requests per minute limits; no rate-limit errors were seen.
+
+## Dependencies added in Phase 2
+
+`unpdf` 1.8.1 (PDF text, page by page), `mammoth` 1.13.0 (Word `.docx`, with external file
+access switched off), `node-html-parser` 9.0.4 (HTML) — all pinned exactly and run on your
+computer only. `npm audit` reports a moderate advisory in `sprintf-js` (via `argparse`), which
+mammoth uses only for its command-line tool; the app never runs that tool, so it is not reachable.

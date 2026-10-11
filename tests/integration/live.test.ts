@@ -100,3 +100,44 @@ describe.skipIf(!writeEnabled)('live LegendKeeper — one guarded write under th
     }
   })
 })
+
+describe.skipIf(!writeEnabled)('live LegendKeeper — Phase 2 writes on one test page under the sandbox', () => {
+  it('replaces tags, replaces content only at the expected version, and restores the original exactly', async () => {
+    const lk = connector()
+    const sandbox = await lk.getResource(process.env.LKC_SANDBOX_PARENT_ID!)
+    const id = newLkResourceId()
+    const name = `${TEST_PREFIX} phase 2 ${new Date().toISOString()}`
+    const created = await lk.createPage({
+      resourceId: id, name, parentId: sandbox.id, tags: ['LKC test'], aliases: [], documentName: 'Main',
+      blocks: [p('Created by the LK Companion integration test. Safe to delete.'), p('Second paragraph.')],
+      idempotencyKey: idempotencyKeyFor('lkc-it2', id),
+    })
+    const documentId = created.documentId!
+    try {
+      // Tags: the whole list is replaced (callers merge first).
+      const tagged = await lk.updateResourceTags(id, ['LKC test', 'LKC test 2'])
+      expect([...tagged.tags].sort()).toEqual(['LKC test', 'LKC test 2'])
+
+      // Content: written only at the version read; a stale version is refused (nothing written).
+      const original = await lk.getDocumentContent(id, documentId)
+      const { version } = await lk.replaceDocumentBlocks(id, documentId, [p('Migrated content.')], original.version)
+      await expect(lk.replaceDocumentBlocks(id, documentId, [p('Stale write.')], original.version)).rejects.toMatchObject({ kind: 'version_conflict' })
+      expect((await lk.getDocumentContent(id, documentId)).text).toContain('Migrated content.')
+
+      // Restore: the blocks exactly as read (with their ids) come back identical.
+      await lk.replaceDocumentBlocks(id, documentId, original.blocks, version)
+      const restored = await lk.getDocumentContent(id, documentId)
+      expect(JSON.stringify(restored.blocks)).toBe(JSON.stringify(original.blocks))
+    } finally {
+      if (cleanup) {
+        const readBack = await lk.getResource(id)
+        if (readBack.id !== id || !readBack.name.startsWith(TEST_PREFIX)) throw new Error('Refusing to delete: not the test page')
+        const raw = new LegendKeeper({ apiKey: process.env.LEGENDKEEPER_API_KEY!, ...(process.env.LEGENDKEEPER_BASE_URL ? { baseUrl: process.env.LEGENDKEEPER_BASE_URL } : {}) })
+        await raw.resources.delete({ resourceId: id })
+        console.info(`Deleted test page ${id}`)
+      } else {
+        console.info(`Left test page ${id} (${name}) in place. Delete it in LegendKeeper when you are done.`)
+      }
+    }
+  })
+})
