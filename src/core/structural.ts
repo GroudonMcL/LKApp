@@ -70,8 +70,13 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
     }
   }
 
+  // For plain text the first line is used as the page name, so it is not repeated in the body.
+  const titleLine = format === 'text' ? lines.findIndex((line) => line.trim() !== '') : -1
+  const usePlainTitle = titleLine !== -1 && ctx.sourceTitle !== null && lines[titleLine]!.trim() === ctx.sourceTitle.trim()
+
   let inFence = false
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
+    if (usePlainTitle && index === titleLine) continue
     if (/^\s*(```|~~~)/.test(line)) inFence = !inFence
     const heading = !inFence && format === 'markdown' ? /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line) : null
     if (heading) {
@@ -95,7 +100,7 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
     current.lines.push(line)
   }
   flush()
-  return { fields, sections, title: h1?.heading ?? null }
+  return { fields, sections, title: h1?.heading ?? (usePlainTitle ? ctx.sourceTitle : null) }
 }
 
 /** Recognises `Key: Value`, `**Key:** Value`, `**Key.** Value` and `**Key** Value`. */

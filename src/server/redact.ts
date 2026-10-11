@@ -7,7 +7,9 @@
  *   bearer tokens, and any exact secret values passed in.
  */
 
-const SECRET_KEY = /(api[-_]?key|secret|token|authorization|password|cookie|credential)/i
+// Field names that hold secrets. Deliberately specific: counts such as `inputTokens` and the
+// one-time `approvalToken` (which the user's own browser must receive) are not secrets.
+const SECRET_KEY = /^(?:x-)?(?:.*(?:api[-_]?key|secret|password|passwd|authorization|cookie|credentials?)|(?:access|refresh|auth|bearer|session|id)[-_]?token|token)$/i
 const SECRET_PATTERNS: RegExp[] = [
   /\blk_[A-Za-z0-9_\-]{6,}/g,
   /\bsk-ant-[A-Za-z0-9_\-]{6,}/g,
@@ -34,8 +36,7 @@ export function redactSecrets<T>(value: T, secrets: string[] = [], depth = 0): T
     }
     const out: Record<string, unknown> = {}
     for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
-      // Idempotency keys are not secrets; keep them for troubleshooting.
-      out[key] = SECRET_KEY.test(key) && !/idempotency/i.test(key) ? REDACTED : redactSecrets(inner, secrets, depth + 1)
+      out[key] = SECRET_KEY.test(key) ? REDACTED : redactSecrets(inner, secrets, depth + 1)
     }
     return out as T
   }

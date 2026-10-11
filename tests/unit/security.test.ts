@@ -18,6 +18,23 @@ describe('secret handling', () => {
     expect(redactString('token=supersecretvalue', ['supersecretvalue'])).toBe('token=[redacted]')
   })
 
+  it('does not mistake token counts, approval tokens or idempotency keys for secrets', () => {
+    const value = { inputTokens: 1200, outputTokens: 300, approvalToken: 'abc123', idempotencyKey: 'lkc.x', accessToken: 'zzz', token: 'zzz', clientSecret: 'zzz', 'x-api-key': 'zzz' }
+    expect(redactSecrets(value)).toEqual({ inputTokens: 1200, outputTokens: 300, approvalToken: 'abc123', idempotencyKey: 'lkc.x', accessToken: '[redacted]', token: '[redacted]', clientSecret: '[redacted]', 'x-api-key': '[redacted]' })
+  })
+
+  it('a draft survives the API round trip (redaction must not corrupt it)', async () => {
+    const { CanonicalPage } = await import('@/core/page-model')
+    const page = CanonicalPage.parse({
+      schemaVersion: 1,
+      name: 'X',
+      pageType: 'npc',
+      processing: { mode: 'ai', model: 'm', generatedAt: '2026-01-01T00:00:00Z', inputTokens: 10, outputTokens: 20 },
+    })
+    const roundTripped = JSON.parse(JSON.stringify(redactSecrets({ draft: { page } }))) as { draft: { page: unknown } }
+    expect(CanonicalPage.safeParse(roundTripped.draft.page).success).toBe(true)
+  })
+
   it('never stores secrets in audit entries, even when a caller passes one', () => {
     const ctx = createTestContext()
     recordAudit(ctx, { operation: 'test', outcome: 'info', message: 'oops lk_live_abcdef123456', details: { apiKey: 'sk-ant-api03-secret-secret' } })

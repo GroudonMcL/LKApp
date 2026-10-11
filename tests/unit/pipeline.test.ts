@@ -124,6 +124,13 @@ describe('import → transform → draft', () => {
     expect(view.draft.page.sections.map((s) => [s.heading, s.kind])).toEqual(expect.arrayContaining([['Actions', 'mechanics'], ['Description', 'lore']]))
   })
 
+  it('uses the first line of plain text as the name without repeating it in the body', async () => {
+    const job = importNotes(ctx)
+    const view = await runTransform(ctx, job.id, { mode: 'structural' })
+    expect(view.draft.page.name).toBe('Elvera Tallowmere')
+    expect(view.draft.page.sections[0]!.paragraphs[0]).toMatch(/^Elvera is a half-elf/)
+  })
+
   it('maps JSON fields deterministically', async () => {
     const recipe = ctx.repos.recipes.insert('rcp_json', {
       ...ctx.repos.recipes.get(recipeId(ctx, 'Location gazetteer entry'))!.definition,
