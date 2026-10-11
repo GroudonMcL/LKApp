@@ -261,6 +261,20 @@ LKC_INTEGRATION=1 LKC_INTEGRATION_WRITE=1 LKC_SANDBOX_PARENT_ID=<sandbox id> LEG
 
 Use a test project or a sandbox page. Never point it at pages you care about.
 
+### Capability probe (test projects only)
+
+`scripts/probe-legendkeeper.ts` checks, against the live API, everything this app relies on
+(project identity, paging, tags, search, creating a page from the app's renderer with a planned
+ID, idempotent replay, duplicate-ID refusal, versioned edits and stale-version refusal,
+single-block insert, tag/alias updates, properties, extra document tabs, delete/restore and
+`HAS_CHILDREN`). It works inside one new top-level "LK Companion Dev Sandbox …" page and deletes
+it afterwards (`LKC_PROBE_KEEP=1` keeps it). **Only run it against a test project** — it needs
+an ADMIN key and explicit opt-in:
+
+```sh
+LKC_PROBE=1 npx tsx scripts/probe-legendkeeper.ts   # report in data/probe-report.json
+```
+
 ## Security and privacy
 
 - The app listens on **127.0.0.1 only** and refuses requests addressed to any other host name (protection against DNS rebinding). Changing requests must come from the app's own pages.
