@@ -56,8 +56,14 @@ offers, what the SDK supports, what this app uses, and how each part was verifie
 git clone <your repository URL> lk-companion
 cd lk-companion
 npm ci               # installs the exact versions in package-lock.json
-cp .env.example .env.local
+npm run setup        # creates .env.local from .env.example (any operating system)
 ```
+
+`npm run setup` never overwrites an existing `.env.local`. If you prefer to copy the file
+yourself: `copy .env.example .env.local` (Windows Command Prompt),
+`Copy-Item .env.example .env.local` (Windows PowerShell) or `cp .env.example .env.local`
+(macOS/Linux). On Windows, `.env.local` may not show in Explorer as a normal file name —
+open it from your editor (e.g. VS Code: *File → Open File*) or with `notepad .env.local`.
 
 Then edit `.env.local` (next section). The database is created automatically on first start;
 you can also create or upgrade it explicitly with `npm run db:migrate`.
