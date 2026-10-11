@@ -17,7 +17,7 @@ LegendKeeper's official API and SDK (`@legendkeeper/sdk`).
 | **Page browser** (read-only) | Scan your project's page list into a local index (metadata only, resumable), filter by name/alias/tag/untagged, open any page to see its documents, sidebar properties, plain text, block structure and version. Live LegendKeeper search. |
 | **Tag audit** (read-only) | All tags with usage counts; pages with no tags. |
 | **Import studio** | Upload `.txt`, `.md` or `.json`, or paste text. Name the import, record the source (title, citation). Long sources are never cut short — split them into sections instead. |
-| **Recipes & templates** | Reusable, versioned conversion recipes (page type, template, required fields, JSON mappings, tag and link policy, AI instructions, "allow creation"). Locally configured templates. |
+| **Recipes & templates** | Reusable, versioned conversion recipes (page type, template, required fields, JSON mappings, tag and link policy, AI instructions, "allow creation"). Templates: **copied from your LegendKeeper templates** (or any example page) and filled in, or configured locally. |
 | **AI transformation** | Claude turns a source into a structured draft. Missing values stay missing; every claimed fact is checked against the source text; anything unclear is marked uncertain. A **structural (no-AI)** mode works without any AI. |
 | **Review** | Edit everything: name, aliases, parent, fields (with their status), sections, tags (existing vs new), links (choose between ambiguous matches or leave unresolved). Validation, preview, revision history. |
 | **Guarded write** | Create **one** page per approval, after a final preview, with duplicate protection, read-back and an audit entry. |
@@ -202,6 +202,29 @@ content), and non-secret preferences. The source text of an import is kept only 
 import is open and is deleted when it is completed or cancelled (its SHA-256 hash is kept).
 **API keys are never stored in the database.** Delete `data/` to start fresh.
 
+## Using your LegendKeeper templates
+
+On **Recipes & templates → Copy from LegendKeeper**, the app lists your project's templates
+(for example *Statblock*). Pick the page type it is for and press **Copy layout**. The app
+reads the template (it never changes it) and saves its layout as a local template. Then open
+your recipe and choose that template. New pages are built from the same blocks:
+
+- the first big heading becomes the page name;
+- each infobox row is filled from the field with the same name or alias (“Armour Class” → Armor
+  Class, “Strength” → STR, “Immunities” → damage and condition immunities, …); rows the
+  source has no value for stay empty;
+- each titled text block (“Traits”, “Actions”, …) gets the section with the same heading, and
+  is left out when the source has none; extra sections (e.g. “Reactions”) become new text
+  blocks in the same style;
+- the description goes where the template has its placeholder text;
+- fields without a row (e.g. Size, Alignment, Gear) are added to the first or last row group.
+
+The template's own example text is never copied. **What goes where** on the template row shows
+the mapping and a preview. After you change the template in LegendKeeper, press **Refresh**.
+You can also copy the layout of any existing page (paste its id or link), e.g. a finished
+statblock page. LegendKeeper lists templates as resources whose parent is `templates`; that is
+observed, not documented, so if it ever stops working, use the page-as-example option.
+
 ## Recipes in more detail
 
 Most settings are on the recipe form. *Edit as JSON* exposes everything, including:
@@ -294,7 +317,7 @@ LKC_PROBE=1 npx tsx scripts/probe-legendkeeper.ts   # report in data/probe-repor
 
 ## Known limitations
 
-- **Templates**: the API cannot read or apply LegendKeeper templates; templates here are configured locally.
+- **Templates**: the API has no “create from template” operation and does not document templates. The app copies a template's *layout* (read with the normal read operations) and fills it; the new page is not linked to the template in LegendKeeper. Empty image slots and the app-only TAGS box cannot be written, so they are left out. Copying works for the built-in page types.
 - **Filtering**: the API cannot filter resources by name or tag, so browsing relies on the local index, which is as fresh as the last scan.
 - **Tag list** needs an ADMIN key; otherwise tags are counted from the index.
 - **Backlinks/relationships**: no API endpoint lists them; Phase 1 resolves links only for new drafts.

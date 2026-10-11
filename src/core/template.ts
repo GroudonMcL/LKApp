@@ -1,17 +1,21 @@
 import { z } from 'zod'
+import { LkLayout } from './lk-layout'
 import { BUILT_IN_PAGE_TYPES } from './page-types'
 
 /**
  * Page templates.
  *
- * LegendKeeper's v3 API has no operation to list or apply the templates you build in the
- * app (see docs/CAPABILITIES.md). So templates here are *locally configured* structures:
- * an ordered list of section headings plus the fields shown in the infobox.
+ * LegendKeeper's v3 API has no operation to apply the templates you build in the app (see
+ * docs/CAPABILITIES.md). Templates here are stored locally and come in two forms:
+ * - a configured structure: an ordered list of section headings plus the fields shown in the
+ *   infobox, laid out by the app's own renderer;
+ * - a layout copied from LegendKeeper (`lkLayout`): the block structure of one of your
+ *   LegendKeeper templates (or an example page), filled with the draft's values. See
+ *   `lk-layout.ts`.
  *
  * `origin` says where a template came from, and the UI always shows it:
  * - `example`: shipped with this app as a starting point. Read-only.
- * - `local`: created or edited by you in this app.
- * (`live` would mean "read from LegendKeeper"; that is not possible with the current API.)
+ * - `local`: created in this app, or copied from LegendKeeper (then `lkLayout` is set).
  */
 
 export const TemplateOrigin = z.enum(['example', 'local'])
@@ -30,6 +34,8 @@ export const TemplateDefinition = z.object({
   includeSourcesSection: z.boolean().default(true),
   /** Free-text notes, e.g. a description of the matching template in LegendKeeper. */
   notes: z.string().max(4000).default(''),
+  /** A layout copied from LegendKeeper. When set, it replaces the app's own page layout. */
+  lkLayout: LkLayout.nullable().default(null),
 })
 export type TemplateDefinition = z.infer<typeof TemplateDefinition>
 export type TemplateDefinitionInput = z.input<typeof TemplateDefinition>

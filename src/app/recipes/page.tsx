@@ -5,8 +5,10 @@ import { useState } from 'react'
 import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { Recipe } from '@/core/recipe'
-import type { PageTemplate, TemplateDefinitionInput } from '@/core/template'
+import type { TemplateDefinitionInput } from '@/core/template'
 import type { PageTypeDefinition } from '@/core/page-types'
+import { LkBlocksPreview } from '@/components/lk-preview'
+import type { LayoutReport, LkTemplateListing, TemplateWithReport } from '@/lib/types'
 
 export default function RecipesPage() {
   const { data, error, loading } = useApi<{ recipes: Recipe[] }>('/api/recipes')
@@ -58,17 +60,38 @@ export default function RecipesPage() {
 }
 
 function Templates() {
-  const { data, error, loading, reload } = useApi<{ templates: PageTemplate[] }>('/api/templates')
+  const { data, error, loading, reload } = useApi<{ templates: TemplateWithReport[] }>('/api/templates')
   const types = useApi<{ pageTypes: PageTypeDefinition[] }>('/api/page-types')
   const [editing, setEditing] = useState<{ id: string | null; definition: TemplateDefinitionInput } | null>(null)
+  const [copying, setCopying] = useState(false)
+  const [open, setOpen] = useState<string | null>(null)
   const action = useAction()
 
   return (
-    <Card title="Templates" actions={<Button onClick={() => setEditing({ id: null, definition: { name: 'New template', pageType: 'npc', sections: ['Description'], infoboxFields: [] } })}>New template</Button>}>
+    <Card
+      title="Templates"
+      actions={
+        <>
+          <Button onClick={() => setCopying(!copying)}>Copy from LegendKeeper</Button>
+          <Button onClick={() => setEditing({ id: null, definition: { name: 'New template', pageType: 'npc', sections: ['Description'], infoboxFields: [] } })}>New template</Button>
+        </>
+      }
+    >
       <Notice>
-        LegendKeeper’s API cannot list or apply the templates you build inside LegendKeeper, so templates here are <strong>configured locally</strong>: an ordered list of section
-        headings and the fields shown in the infobox. <Badge>example</Badge> templates ship with the app and are read-only; <Badge tone="info">local</Badge> templates are yours.
+        A template decides how a new page is laid out. It can be <strong>copied from LegendKeeper</strong> (the layout of one of your LegendKeeper templates, or of any page you pick as
+        an example), or <strong>configured here</strong> as a list of section headings and infobox fields. LegendKeeper’s API cannot create a page “from a template”, so the app copies
+        the layout and fills it in; the new page is not linked to the template inside LegendKeeper. <Badge>example</Badge> templates ship with the app and are read-only;{' '}
+        <Badge tone="info">local</Badge> templates are yours.
       </Notice>
+      {copying && (
+        <CopyFromLegendKeeper
+          pageTypes={types.data?.pageTypes ?? []}
+          onDone={async () => {
+            setCopying(false)
+            await reload()
+          }}
+        />
+      )}
       <ErrorBox error={error ?? action.error} />
       {loading && <Loading />}
       {data && (
@@ -92,12 +115,49 @@ function Templates() {
                       <code>{template.id}</code>
                     </div>
                   </td>
-                  <td>{template.origin === 'example' ? <Badge>example</Badge> : <Badge tone="info">local</Badge>}</td>
+                  <td>
+                    {template.origin === 'example' ? <Badge>example</Badge> : <Badge tone="info">local</Badge>}
+                    {template.definition.lkLayout && (
+                      <div>
+                        <Badge tone="good" title={`Copied ${formatDate(template.definition.lkLayout.fetchedAt)}`}>
+                          from LegendKeeper
+                        </Badge>
+                      </div>
+                    )}
+                  </td>
                   <td>{template.definition.pageType}</td>
-                  <td className="small">{template.definition.sections.join(' · ')}</td>
+                  <td className="small">
+                    {template.definition.lkLayout ? (
+                      <>
+                        Layout of the LegendKeeper {template.definition.lkLayout.sourceKind} “{template.definition.lkLayout.sourceName}” (<code>{template.definition.lkLayout.sourceResourceId}</code>), copied{' '}
+                        {formatDate(template.definition.lkLayout.fetchedAt)}.{' '}
+                        <button type="button" className="link-button" onClick={() => setOpen(open === template.id ? null : template.id)}>
+                          {open === template.id ? 'Hide details' : 'What goes where'}
+                        </button>
+                      </>
+                    ) : (
+                      template.definition.sections.join(' · ')
+                    )}
+                    {open === template.id && template.layoutReport && template.definition.lkLayout && <LayoutDetails report={template.layoutReport} blocks={template.definition.lkLayout.blocks} />}
+                  </td>
                   <td className="nowrap">
                     {template.origin === 'local' ? (
                       <>
+                        {template.definition.lkLayout && (
+                          <Button
+                            variant="ghost"
+                            busy={action.busy}
+                            title="Read the layout from LegendKeeper again, to pick up changes you made to it there"
+                            onClick={() =>
+                              void action.run(async () => {
+                                await api.post('/api/templates/copy', { resource: template.definition.lkLayout!.sourceResourceId, pageType: template.definition.pageType, templateId: template.id })
+                                await reload()
+                              })
+                            }
+                          >
+                            Refresh
+                          </Button>
+                        )}
                         <Button variant="ghost" onClick={() => setEditing({ id: template.id, definition: template.definition })}>
                           Edit
                         </Button>
@@ -163,6 +223,14 @@ function TemplateEditor({ initial, pageTypes, busy, onSave, onCancel }: { initia
             ))}
           </select>
         </div>
+        {definition.lkLayout && (
+          <div style={{ gridColumn: '1 / -1' }}>
+            <Notice>
+              The layout comes from the LegendKeeper {definition.lkLayout.sourceKind} “{definition.lkLayout.sourceName}”. To change it, edit it in LegendKeeper and press <strong>Refresh</strong>.
+              The section headings and infobox fields below are not used for this template.
+            </Notice>
+          </div>
+        )}
         <div className="field">
           <label htmlFor="t-sections">
             Section headings <span className="hint">(one per line, in page order)</span>
@@ -182,7 +250,7 @@ function TemplateEditor({ initial, pageTypes, busy, onSave, onCancel }: { initia
         </div>
         <div className="field">
           <label className="check">
-            <input type="checkbox" checked={definition.includeSourcesSection ?? true} onChange={(e) => setDefinition({ ...definition, includeSourcesSection: e.target.checked })} /> Add a “Sources” section
+            <input type="checkbox" checked={definition.includeSourcesSection ?? true} onChange={(e) => setDefinition({ ...definition, includeSourcesSection: e.target.checked })} /> Add a “Sources” section at the end
           </label>
           <label htmlFor="t-notes">Notes</label>
           <textarea id="t-notes" value={definition.notes ?? ''} onChange={(e) => setDefinition({ ...definition, notes: e.target.value })} placeholder="e.g. mirrors my 'NPC (2024)' template in LegendKeeper" />
@@ -196,6 +264,131 @@ function TemplateEditor({ initial, pageTypes, busy, onSave, onCancel }: { initia
           Cancel
         </Button>
       </div>
+    </div>
+  )
+}
+
+function guessPageType(name: string): string {
+  const n = name.toLowerCase()
+  if (/stat\s*block|creature|monster|beast/.test(n)) return 'creature'
+  if (/npc|character|person/.test(n)) return 'npc'
+  if (/location|place|city|town|region|settlement/.test(n)) return 'location'
+  if (/item|weapon|armou?r|artifact|artefact/.test(n)) return 'magic_item'
+  if (/rule/.test(n)) return 'rule'
+  if (/event|history|battle|war/.test(n)) return 'historical_event'
+  return 'npc'
+}
+
+function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefinition[]; onDone: () => Promise<void> }) {
+  const listing = useApi<{ templates: LkTemplateListing[]; note: string }>('/api/lk-templates')
+  const [choice, setChoice] = useState<Record<string, string>>({})
+  const [other, setOther] = useState('')
+  const [otherType, setOtherType] = useState('npc')
+  const action = useAction()
+  const copy = (resource: string, pageType: string) =>
+    action.run(async () => {
+      await api.post('/api/templates/copy', { resource, pageType })
+      await onDone()
+    })
+  const typeSelect = (value: string, onChange: (v: string) => void, id: string) => (
+    <select id={id} aria-label="Page type" value={value} onChange={(e) => onChange(e.target.value)}>
+      {pageTypes.map((t) => (
+        <option key={t.id} value={t.id}>
+          {t.label}
+        </option>
+      ))}
+    </select>
+  )
+  return (
+    <div className="confirm-box" style={{ marginBottom: '1rem' }}>
+      <p>
+        Pick a LegendKeeper template and the kind of page it is for. The app reads its layout (this only reads from LegendKeeper) and saves it here as a local template. Then choose
+        that template in a recipe.
+      </p>
+      <ErrorBox error={listing.error ?? action.error} />
+      {listing.loading && <Loading label="Looking for templates in LegendKeeper…" />}
+      {listing.data && listing.data.templates.length === 0 && <Empty title="No templates found">You can still use any page as an example, below.</Empty>}
+      {listing.data && listing.data.templates.length > 0 && (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>LegendKeeper template</th>
+                <th>For page type</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {listing.data.templates.map((item) => {
+                const pageType = choice[item.id] ?? guessPageType(item.name)
+                return (
+                  <tr key={item.id}>
+                    <td>
+                      {item.name}
+                      <div className="small muted">
+                        <code>{item.id}</code> · updated {formatDate(item.updatedAt)}
+                      </div>
+                    </td>
+                    <td>{typeSelect(pageType, (v) => setChoice({ ...choice, [item.id]: v }), `pt-${item.id}`)}</td>
+                    <td>
+                      <Button variant="primary" busy={action.busy} onClick={() => void copy(item.id, pageType)}>
+                        Copy layout
+                      </Button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {listing.data && <p className="small muted">{listing.data.note}</p>}
+      <div className="row" style={{ alignItems: 'flex-end' }}>
+        <div className="field" style={{ flex: 1 }}>
+          <label htmlFor="copy-other">Or use a page as an example (page id or link)</label>
+          <input id="copy-other" type="text" value={other} onChange={(e) => setOther(e.target.value)} placeholder="e.g. m391dcf44f359b15421b7216" />
+        </div>
+        <div className="field">{typeSelect(otherType, setOtherType, 'copy-other-type')}</div>
+        <div className="field">
+          <Button busy={action.busy} disabled={!other.trim()} onClick={() => void copy(other.trim(), otherType)}>
+            Copy layout
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LayoutDetails({ report, blocks }: { report: LayoutReport; blocks: unknown[] }) {
+  const [showPreview, setShowPreview] = useState(false)
+  return (
+    <div className="confirm-box" style={{ marginTop: '0.5rem' }}>
+      <strong>Infobox rows</strong>
+      <ul>
+        {report.rows.map((row, i) => (
+          <li key={i}>
+            {row.key || '(no label)'} → {row.fields.length ? row.fields.join(' + ') : <span className="muted">no matching field (stays empty)</span>}
+          </li>
+        ))}
+      </ul>
+      <strong>Text blocks</strong> (filled with the section of the same name; left out when the source has nothing for them):{' '}
+      {report.sections.length ? report.sections.join(' · ') : 'none'}
+      <p className="small">
+        {report.hasDescriptionArea
+          ? 'The description and other lore go where the template has its placeholder text.'
+          : 'The template has no placeholder text, so the description and other lore go at the end.'}{' '}
+        Sections without a matching text block are added as new text blocks. Fields without a row ({report.fieldsWithoutRow.join(', ') || 'none'}) are added to the first or last group
+        when the source has them. Template text itself is never copied.
+      </p>
+      {report.droppedParts.length > 0 && (
+        <p className="small">
+          Not copied (the API cannot write these; LegendKeeper adds its own): {report.droppedParts.join(', ')}.
+        </p>
+      )}
+      <button type="button" className="link-button" onClick={() => setShowPreview(!showPreview)}>
+        {showPreview ? 'Hide the copied layout' : 'Show the copied layout'}
+      </button>
+      {showPreview && <LkBlocksPreview blocks={blocks} />}
     </div>
   )
 }

@@ -1,0 +1,48 @@
+{
+  "_comment": "Shaped like a LegendKeeper 'Statblock' template as returned by documents.getBlocks (ids, ranks and an unsupported TAGS property included). Placeholder text is invented.",
+  "blocks": [
+    {
+      "id": "ib000001", "kind": "infobox", "layout": "wrapLeft", "width": 19,
+      "rows": [
+        { "id": "r0000001", "rank": "P", "title": "IMAGE", "isTitleHidden": true, "kind": "image", "url": "", "fill": true },
+        { "id": "r0000002", "rank": "T", "title": "TEXT", "isTitleHidden": true, "kind": "textField", "children": [
+          { "id": "h0000001", "kind": "heading", "level": 1, "content": [{ "text": "Creature Name" }] },
+          { "id": "p0000009", "kind": "paragraph", "content": [{ "text": "Size Type, Alignment" }] }
+        ] },
+        { "id": "r0000003", "rank": "U", "title": "PROPERTIES", "isTitleHidden": true, "kind": "keyValue", "rows": [
+          { "id": "k1", "rank": "a", "key": "Armour Class", "content": [], "text": "" },
+          { "id": "k2", "rank": "b", "key": "Initiative", "content": [], "text": "" },
+          { "id": "k3", "rank": "c", "key": "Hit Points", "content": [], "text": "" },
+          { "id": "k4", "rank": "d", "key": "Speed", "content": [], "text": "" }
+        ] },
+        { "id": "r0000004", "rank": "V", "title": "PROPERTIES", "isTitleHidden": true, "kind": "keyValue", "display": "grid", "rows": [
+          { "key": "Strength", "content": [], "text": "" },
+          { "key": "Intelligence", "content": [], "text": "" },
+          { "key": "Dexterity", "content": [], "text": "" },
+          { "key": "Wisdom", "content": [], "text": "" },
+          { "key": "Constitution", "content": [], "text": "" },
+          { "key": "Charisma", "content": [], "text": "" }
+        ] },
+        { "id": "r0000005", "rank": "W", "title": "PROPERTIES", "isTitleHidden": true, "kind": "keyValue", "display": "inline", "rows": [
+          { "key": "Skills", "content": [], "text": "" },
+          { "key": "Resistances", "content": [], "text": "" },
+          { "key": "Immunities", "content": [], "text": "" },
+          { "key": "Senses", "content": [], "text": "" },
+          { "key": "Languages", "content": [], "text": "" },
+          { "key": "Challenge Rating", "content": [], "text": "" }
+        ] },
+        { "id": "r0000006", "rank": "X", "title": "TAGS", "isTitleHidden": true, "kind": "unsupported" }
+      ]
+    },
+    { "id": "t0000001", "kind": "textField", "title": "Traits", "isTitleHidden": false, "children": [
+      { "kind": "paragraph", "content": [{ "text": "Example Trait. ", "bold": true }, { "text": "Placeholder trait text." }] }
+    ] },
+    { "id": "t0000002", "kind": "textField", "title": "Actions", "isTitleHidden": false, "children": [
+      { "kind": "paragraph", "content": [{ "text": "Example Attack. Placeholder attack text." }] }
+    ] },
+    { "id": "t0000003", "kind": "textField", "title": "Bonus Actions", "isTitleHidden": false, "children": [{ "kind": "paragraph" }] },
+    { "id": "t0000004", "kind": "textField", "title": "Legendary Actions", "isTitleHidden": false, "children": [{ "kind": "paragraph" }] },
+    { "id": "ru000001", "kind": "rule" },
+    { "id": "p0000001", "kind": "paragraph", "content": [{ "text": "Creature Description Text" }] }
+  ]
+}

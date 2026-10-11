@@ -32,6 +32,20 @@ function draft(text: string, recipeInput: Record<string, unknown> = {}, existing
 }
 
 describe('statblock reading without AI', () => {
+  it('reads the first line as the name even when the import was named differently', () => {
+    const text = fixture('statblock-2024.txt')
+    const recipe = RecipeDefinition.parse({ name: 'Creature', targetPageType: 'creature' })
+    const template = { ...resolveTemplate(creature, null), sections: ['Traits', 'Actions', 'Description'] }
+    const result = buildStructuralDraft(
+      { pageType: creature, template, recipe, recipeId: 'r', recipeVersion: 1, templateId: null, jobId: 'j', sourceText: text, sourceTitle: 'My goblin', attribution: { title: 'T', kind: 'paste', citation: null, jobId: 'j', importedAt: '2026-01-01T00:00:00Z' }, now: '2026-01-01T00:00:00Z' },
+      'text',
+    )
+    expect(result.page.name).toBe('My goblin')
+    expect(result.page.sections.map((s) => s.heading)).toEqual(['Traits', 'Actions', 'Reactions'])
+    expect(result.page.sections.flatMap((s) => s.paragraphs)).not.toContain('Goblin Underboss')
+    expect(result.page.reviewerNotes.join(' ')).toContain('“Goblin Underboss” was read as the creature’s name')
+  })
+
   it('reads a 2024-style statblock (AC/HP abbreviations, MOD/SAVE table, plain headings)', () => {
     const { fields, sections, result } = draft(fixture('statblock-2024.txt'))
     expect(result.page.name).toBe('Goblin Underboss')

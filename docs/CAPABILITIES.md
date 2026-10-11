@@ -50,7 +50,7 @@ Legend — **Verified**: *live* = against the real LegendKeeper test project; *s
 | References / backlinks | mention runs in blocks; `links`/collection blocks; collection filter `scope: 'edges'` | `mention()`, `links()`, `collection()` | — | Mentions + `links` property on create | **live** (mentions read back with the target's current `name`) | **No endpoint lists backlinks directly**; a relationship graph would need reading pages' blocks. |
 | Sidebar properties | `…/properties[/{id}][/rows]` | `properties.*` | edit rights for writes | Read only (page detail) | **live** (probe: create + list) | Row writes take `ifMatch`. Style guide prefers an **infobox** over sidebar properties for single-page wikis. |
 | Infobox / property blocks | infobox block + `…/blocks/{id}/properties` | `infobox()`, `property()`, `keyValue()`, `blocks.*Property*` | edit rights | Yes — facts infobox on created pages | **live**, spec | |
-| Templates: discovery / application | **None** | **None** | — | Local templates only | — | **The v3 API has no template endpoints.** The only mention: collections never list templates. The app uses locally configured templates (section list + infobox fields), clearly labelled *example* or *local*. |
+| Templates: discovery / application | **Undocumented** (read) / **None** (apply) | Read: yes (live, Oct 2026) | — | Copy layout, fill locally | — | No template endpoints. Observed: `resources.list` returns templates with `parentId: "templates"` (e.g. *Statblock*), and `resources.get` / `documents.getBlocks` read them like pages. There is no "create from template"; the app copies the block layout and fills it in. Undocumented, so the app only uses it to *suggest* templates; any page can serve as the example instead. |
 | Timelines & events | `…/lanes`, `…/events` | `timelines.*` | edit rights | No (out of scope) | — | Events have only a name (no description); dates via `formattedStart` in the timeline's calendar. |
 | Calendars | `/calendars` | `calendars.*` | Admin for custom | No | **live** (list: one custom + 6 built-in incl. `greyhawk`) | Built-ins include `greyhawk`. Calendar writes take `ifMatch`. |
 | Images & assets | `/assets`, uploads | `assets.*`, `assets.uploadImage` | Member upload; Admin manage | No | — | Image fields accept only this project's asset URLs. |
@@ -71,9 +71,13 @@ Legend — **Verified**: *live* = against the real LegendKeeper test project; *s
 
 - Existing statblock pages (e.g. *Aboleth*) use an **infobox with several key-value groups**
   (Overview, Ability Scores, Details) followed by `textField` blocks for Traits, Actions and
-  Legendary Actions. Phase 1 writes one "Statistics" key-value block plus headed sections.
-  Matching your house style exactly (grouped infobox rows, text fields) is a good Phase 2
-  template feature.
+  Legendary Actions. The project's *Statblock* template has the same shape. With a layout
+  copied from that template the app writes exactly this structure (verified live: a page
+  created in the sandbox from the 2024 goblin fixture).
+- Writing an image property with an empty `url` fails with `VALIDATION_ERROR … unsupported
+  href`, so empty image slots in a template are left out. `rank` is rejected in create
+  bodies, so ids and ranks are stripped from copied layouts. Documents cannot be created
+  full-width through `resources.create`.
 - The project has a large rules glossary (135 pages tagged *Glossary*). The automatic name
   scan would link terms such as "Armor Class" everywhere; recipes can now exclude tags from
   the scan (`linkPolicy.scanExcludeTags`, e.g. `["Glossary"]`).

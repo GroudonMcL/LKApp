@@ -7,12 +7,17 @@ import type { scanStatus, browseIndex } from '@/server/services/discovery'
 import type { draftView } from '@/server/services/drafts'
 import type { prepareWrite, approveWrite, Blocker } from '@/server/services/write'
 import type { TagOverview } from '@/server/services/tags'
+import type { layoutReport, LkTemplateListing } from '@/server/services/lk-templates'
+import type { PageTemplate } from '@/core/template'
 import type { AuditEvent, ImportJob } from '@/server/db/repositories'
 import type { ResourceDetail, DocumentContent, SearchHit, ResourcePage } from '@/server/lk/types'
 
 export type ConnectionSummary = ReturnType<typeof connectionSummary>
 export type { ConnectionCheck, TagOverview, AuditEvent, ResourceDetail, DocumentContent, SearchHit, ResourcePage, Blocker }
 export type ScanStatus = ReturnType<typeof scanStatus>
+export type { LkTemplateListing }
+export type LayoutReport = NonNullable<ReturnType<typeof layoutReport>>
+export type TemplateWithReport = PageTemplate & { layoutReport: LayoutReport | null }
 export type BrowseResult = ReturnType<typeof browseIndex>
 export type DraftView = ReturnType<typeof draftView> & { writeBlockers: Blocker[] }
 export type WritePreview = Awaited<ReturnType<typeof prepareWrite>>

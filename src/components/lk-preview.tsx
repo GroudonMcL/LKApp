@@ -40,10 +40,10 @@ function children(block: AnyBlock, names: Names): ReactNode {
   return Array.isArray(block.children) ? (block.children as AnyBlock[]).map((child, i) => <Block key={child.id ?? i} block={child} names={names} />) : null
 }
 
-function KeyValueTable({ rows }: { rows: unknown }) {
+function KeyValueTable({ rows, display }: { rows: unknown; display?: unknown }) {
   if (!Array.isArray(rows)) return null
   return (
-    <table className="lk-kv">
+    <table className={`lk-kv${display === 'grid' ? ' lk-kv-grid' : display === 'inline' ? ' lk-kv-inline' : ''}`}>
       <tbody>
         {(rows as { key?: string; text?: string; content?: unknown }[]).map((row, i) => (
           <tr key={i}>
@@ -120,7 +120,7 @@ function Block({ block, names }: { block: AnyBlock; names: Names }): ReactNode {
       return (
         <div>
           {title}
-          <KeyValueTable rows={block.rows} />
+          <KeyValueTable rows={block.rows} display={block.display} />
         </div>
       )
     case 'resourceLink':
@@ -140,7 +140,7 @@ function Block({ block, names }: { block: AnyBlock; names: Names }): ReactNode {
       )
     case 'infobox':
       return (
-        <aside className="lk-infobox">
+        <aside className={`lk-infobox${block.layout === 'wrapLeft' ? ' lk-infobox-left' : ''}`}>
           {((block.rows as AnyBlock[]) ?? []).map((row, i) => (
             <Block key={row.id ?? i} block={row} names={names} />
           ))}
@@ -158,6 +158,13 @@ function Block({ block, names }: { block: AnyBlock; names: Names }): ReactNode {
       return <td>{children(block, names)}</td>
     case 'tableHeader':
       return <th>{children(block, names)}</th>
+    case 'image':
+      return (
+        <div>
+          {title}
+          {typeof block.url === 'string' && block.url ? <p className="muted small">[Image]</p> : <div className="lk-image-placeholder muted small">Image (empty — add one in LegendKeeper)</div>}
+        </div>
+      )
     case 'unsupported':
       return <p className="muted small">[Content the API cannot show — kept as is in LegendKeeper]</p>
     default:

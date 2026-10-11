@@ -21,6 +21,7 @@ export function buildStructuralDraft(ctx: DraftContext, format: 'text' | 'markdo
   let fields = emptyFields(ctx.pageType)
   let sections: PageSection[] = []
   let name = ctx.sourceTitle ?? 'Untitled'
+  let notes: string[] = []
 
   if (format === 'json') {
     const mapped = applyJsonMappings(fields, ctx.recipe, ctx.sourceJson)
@@ -31,6 +32,7 @@ export function buildStructuralDraft(ctx: DraftContext, format: 'text' | 'markdo
     fields = result.fields
     sections = result.sections
     name = result.title ?? name
+    notes = result.notes
   }
 
   const page = newPage(ctx, name, fields, sections, {
@@ -46,7 +48,7 @@ export function buildStructuralDraft(ctx: DraftContext, format: 'text' | 'markdo
     detectedPageType: null,
     pageTypeConfidence: null,
   })
-  page.reviewerNotes = ['Built without AI from the source’s own structure. Section text is copied verbatim; check that fields were matched correctly.']
+  page.reviewerNotes = ['Built without AI from the source’s own structure. Section text is copied verbatim; check that fields were matched correctly.', ...notes]
   return { page, mentions: [], tagCandidates: baseTagCandidates(ctx) }
 }
 
@@ -55,6 +57,7 @@ const STATBLOCK_HEADINGS = ['Traits', 'Actions', 'Bonus Actions', 'Reactions', '
 const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const
 
 function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'markdown') {
+  const nameNotes: string[] = []
   const fields = initial.map((field) => ({ ...field }))
   const fieldIndex = new Map(fields.map((field, i) => [field.key, i]))
   const labels = buildLabelIndex(ctx.pageType.fields, ctx.recipe)
@@ -72,7 +75,9 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
   const sectionLevel = outline.filter((e) => e !== h1).reduce((min, e) => Math.min(min, e.level), 7)
 
   const sections: PageSection[] = []
-  let current: { heading: string; lines: string[] } = { heading: ctx.template.sections[0] ?? 'Description', lines: [] }
+  // Text before the first heading is description, not mechanics (a template may list "Traits" first).
+  const introHeading = ctx.template.sections.find((heading) => !MECHANICS_HEADINGS.has(heading.toLowerCase())) ?? 'Description'
+  let current: { heading: string; lines: string[] } = { heading: introHeading, lines: [] }
   const flush = () => {
     const kind = MECHANICS_HEADINGS.has(current.heading.toLowerCase()) ? 'mechanics' : 'lore'
     // In statblock sections every entry ("Multiattack. …") is its own paragraph.
@@ -86,7 +91,23 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
 
   // For plain text the first line is used as the page name, so it is not repeated in the body.
   const titleLine = format === 'text' ? lines.findIndex((line) => line.trim() !== '') : -1
-  const usePlainTitle = titleLine !== -1 && ctx.sourceTitle !== null && lines[titleLine]!.trim() === ctx.sourceTitle.trim()
+  const firstLine = titleLine === -1 ? '' : lines[titleLine]!.trim()
+  const matchesName = titleLine !== -1 && ctx.sourceTitle !== null && firstLine === ctx.sourceTitle.trim()
+  // A statblock's first line is the creature's name, even if you named the import differently.
+  const nextLine = titleLine === -1 ? undefined : lines.slice(titleLine + 1).find((line) => line.trim() !== '')
+  const statblockName =
+    titleLine !== -1 &&
+    !matchesName &&
+    fieldIndex.has('size') &&
+    firstLine.length <= 80 &&
+    !/[.:;]$/.test(firstLine) &&
+    matchLabel(firstLine, labels) === null &&
+    nextLine !== undefined &&
+    readTypeLine(nextLine) !== null
+  const usePlainTitle = matchesName || statblockName
+  if (statblockName && ctx.sourceTitle !== null) {
+    nameNotes.push(`The first line “${firstLine}” was read as the creature’s name; the page keeps the name you gave the import (“${ctx.sourceTitle}”).`)
+  }
 
   let inFence = false
   let contentLines = 0
@@ -181,7 +202,7 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
   const saveList = ABILITY_KEYS.filter((key) => saves[key]).map((key) => `${key[0]!.toUpperCase()}${key.slice(1)} ${saves[key]}`)
   if (saveList.length > 0) setField('savingThrows', saveList.join(', '), null, 'Copied from the SAVE column of the ability table.')
 
-  return { fields, sections, title: h1?.heading ?? (usePlainTitle ? ctx.sourceTitle : null) }
+  return { fields, sections, title: h1?.heading ?? (matchesName ? ctx.sourceTitle : statblockName ? (ctx.sourceTitle ?? firstLine) : null), notes: nameNotes }
 }
 
 /** Recognises `Key: Value`, `**Key:** Value`, `**Key.** Value` and `**Key** Value`. */

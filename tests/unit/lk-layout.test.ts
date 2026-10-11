@@ -1,0 +1,202 @@
+import { readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import { plainText, walk, type Block } from '@legendkeeper/sdk/blocks'
+import type { DraftContext } from '@/core/draft-common'
+import { fieldsForLayoutKey, skeletonFromBlocks, summarizeLayout, type LkLayout } from '@/core/lk-layout'
+import { findBuiltInPageType } from '@/core/page-types'
+import { RecipeDefinition } from '@/core/recipe'
+import { resolveTemplate } from '@/core/resolve'
+import { buildStructuralDraft } from '@/core/structural'
+import { TemplateDefinition } from '@/core/template'
+import { buildCreatePayload, renderPageBlocks } from '@/server/lk/render'
+import { validateAgainstSpec } from '../helpers/openapi-validator'
+
+const creature = findBuiltInPageType('creature')!
+const fixture = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url), 'utf8')
+const templateBlocks = (JSON.parse(fixture('lk-statblock-template.json')) as { blocks: unknown[] }).blocks
+
+function layout(): LkLayout {
+  const { blocks, droppedParts } = skeletonFromBlocks(templateBlocks)
+  return { sourceProjectId: 'p', sourceResourceId: 'l1ylm24t', sourceName: 'Statblock', sourceKind: 'template', documentName: 'Main', blocks, droppedParts, fetchedAt: '2026-10-11T00:00:00Z' }
+}
+
+function goblinDraft() {
+  const recipe = RecipeDefinition.parse({ name: 'Creature', targetPageType: 'creature' })
+  const text = fixture('statblock-2024.txt')
+  const ctx: DraftContext = {
+    pageType: creature,
+    template: resolveTemplate(creature, null),
+    recipe,
+    recipeId: 'r',
+    recipeVersion: 1,
+    templateId: null,
+    jobId: 'j',
+    sourceText: text,
+    sourceTitle: 'Goblin Underboss',
+    attribution: { title: 'Test', kind: 'paste', citation: null, jobId: 'j', importedAt: '2026-01-01T00:00:00Z' },
+    now: '2026-01-01T00:00:00Z',
+  }
+  return buildStructuralDraft(ctx, 'text').page
+}
+
+const template = (includeSourcesSection = false) =>
+  TemplateDefinition.parse({ name: 'Statblock', pageType: 'creature', sections: ['Traits'], includeSourcesSection, lkLayout: layout() })
+
+function rowsOf(blocks: Block[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  walk(blocks, (block) => {
+    if (block.kind === 'keyValue') for (const row of block.rows) out[row.key] = plainText([{ kind: 'paragraph', content: row.content ?? [] }])
+  })
+  return out
+}
+
+describe('layouts copied from LegendKeeper', () => {
+  it('strips ids, ranks and parts the API cannot write', () => {
+    const { blocks, droppedParts } = skeletonFromBlocks(templateBlocks)
+    expect(droppedParts).toEqual([expect.stringMatching(/^the empty image slot/), 'TAGS'])
+    expect(JSON.stringify(blocks)).not.toMatch(/"(id|rank)":/)
+    expect(JSON.stringify(blocks)).not.toContain('unsupported')
+  })
+
+  it('matches row keys to fields, including British spelling and combined rows', () => {
+    expect(fieldsForLayoutKey('Armour Class', creature)).toEqual(['armorClass'])
+    expect(fieldsForLayoutKey('Strength', creature)).toEqual(['str'])
+    expect(fieldsForLayoutKey('Challenge Rating', creature)).toEqual(['challenge'])
+    expect(fieldsForLayoutKey('Immunities', creature)).toEqual(['damageImmunities', 'conditionImmunities'])
+    expect(fieldsForLayoutKey('Favourite Colour', creature)).toEqual([])
+    const summary = summarizeLayout(layout().blocks, creature)
+    expect(summary.sections).toEqual(['Traits', 'Actions', 'Bonus Actions', 'Legendary Actions'])
+    expect(summary.hasDescriptionArea).toBe(true)
+    expect(summary.rows.every((row) => row.fieldKeys.length > 0)).toBe(true)
+  })
+
+  it('fills the layout with the draft and never copies template text', () => {
+    const page = goblinDraft()
+    const blocks = renderPageBlocks(page, { pageType: creature, template: template() })
+    const text = plainText(blocks)
+    expect(text).not.toMatch(/Creature Name|Example|Placeholder|Creature Description Text|Size Type, Alignment/)
+
+    // Name in the infobox heading, values in the template's rows.
+    const infobox = blocks[0]!
+    expect(infobox.kind).toBe('infobox')
+    let heading = ''
+    walk(blocks, (block) => {
+      if (block.kind === 'heading' && block.level === 1 && !heading) heading = plainText(block)
+    })
+    expect(heading).toBe('Goblin Underboss')
+    const rows = rowsOf(blocks)
+    expect(rows).toMatchObject({
+      'Armour Class': '17',
+      Initiative: '+2 (12)',
+      'Hit Points': '21 (6d6)',
+      Speed: '30 ft.',
+      Strength: '10 (+0)',
+      Wisdom: '8 (−1)',
+      Skills: 'Stealth +6',
+      Senses: 'Darkvision 60 ft.; Passive Perception 9',
+      Languages: 'Common, Goblin',
+      Resistances: '',
+    })
+    // Fields without a row of their own: type line first, the rest last.
+    const keys = Object.keys(rows)
+    expect(keys.slice(0, 3)).toEqual(['Size', 'Creature type', 'Alignment'])
+    expect(keys).toContain('Gear')
+
+    // Grid and inline displays are kept.
+    const displays: string[] = []
+    walk(blocks, (block) => {
+      if (block.kind === 'keyValue') displays.push(block.display ?? 'list')
+    })
+    expect(displays).toEqual(['list', 'grid', 'inline'])
+
+    // Sections go into the matching text blocks; empty ones are left out; extra ones are added as text blocks.
+    const titled = blocks.filter((block) => block.kind === 'textField').map((block) => (block as { title?: string }).title)
+    expect(titled).toEqual(['Traits', 'Actions', 'Reactions'])
+    expect(text).toContain('Nimble Feet. The underboss can take the Disengage action as a bonus action.')
+    expect(text).toContain('Redirect Attack.')
+  })
+
+  it('places the description where the template has its placeholder', () => {
+    const page = goblinDraft()
+    page.sections.push({ id: 's-desc', heading: 'Description', kind: 'lore', paragraphs: ['Underbosses keep goblin war bands in line.'] })
+    const blocks = renderPageBlocks(page, { pageType: creature, template: template() })
+    const ruleAt = blocks.findIndex((block) => block.kind === 'rule')
+    expect(ruleAt).toBeGreaterThan(0)
+    expect(plainText(blocks[ruleAt + 1]!)).toBe('Underbosses keep goblin war bands in line.')
+    expect(blocks.some((block) => block.kind === 'heading' && plainText(block) === 'Description')).toBe(false)
+  })
+
+  it('leaves out empty image slots even in layouts copied earlier', () => {
+    const old = layout()
+    old.blocks = templateBlocks.map((block) => skeletonFromBlocks([block]).blocks[0]!)
+    ;(old.blocks[0]!.rows as Record<string, unknown>[]).unshift({ kind: 'image', title: 'IMAGE', isTitleHidden: true, url: '', fill: true })
+    const blocks = renderPageBlocks(goblinDraft(), { pageType: creature, template: TemplateDefinition.parse({ name: 'S', pageType: 'creature', sections: ['Traits'], lkLayout: old }) })
+    let images = 0
+    walk(blocks, (block) => {
+      if (block.kind === 'image') images++
+    })
+    expect(images).toBe(0)
+  })
+
+  it('writes only confirmed values', () => {
+    const page = goblinDraft()
+    const ac = page.fields.find((field) => field.key === 'armorClass')!
+    ac.status = 'uncertain'
+    const rows = rowsOf(renderPageBlocks(page, { pageType: creature, template: template() }))
+    expect(rows['Armour Class']).toBe('')
+  })
+
+  it('adds a Sources section only when the template asks for it', () => {
+    const page = goblinDraft()
+    expect(plainText(renderPageBlocks(page, { pageType: creature, template: template(false) }))).not.toContain('Sources')
+    expect(plainText(renderPageBlocks(page, { pageType: creature, template: template(true) }))).toContain('Sources')
+  })
+
+  it('produces a create request that matches the official OpenAPI schema', () => {
+    const payload = buildCreatePayload(goblinDraft(), { pageType: creature, template: template(true) }, 'a0000000000000000000000a', 'key')
+    const body = { id: payload.resourceId, name: payload.name, tags: payload.tags, aliases: payload.aliases, documents: [{ type: 'page', name: payload.documentName, blocks: payload.blocks }] }
+    const result = validateAgainstSpec('ResourceCreateParams', body)
+    expect(result.errors).toEqual([])
+    expect(result.valid).toBe(true)
+  })
+})
+
+describe('copying a layout from LegendKeeper (service)', async () => {
+  const { createTestContext } = await import('../helpers/test-context')
+  const { copyLayoutFromLegendKeeper, listLkTemplates, resourceIdFrom } = await import('@/server/services/lk-templates')
+
+  const setup = () =>
+    createTestContext({
+      resources: [
+        { id: 'l1ylm24t', name: 'Statblock', parentId: 'templates', documents: [{ id: 'rjemxmxe', name: 'Main', type: 'page', blocks: templateBlocks, version: 'v1', text: '' }] },
+        { id: 'pg000001', name: 'Aboleth', parentId: null },
+      ],
+    })
+
+  it('lists templates and copies one into a local template, reading only', async () => {
+    const ctx = setup()
+    const { templates } = await listLkTemplates(ctx)
+    expect(templates.map((t) => t.name)).toEqual(['Statblock'])
+
+    const { template, report } = await copyLayoutFromLegendKeeper(ctx, { resource: 'l1ylm24t', pageType: 'creature' })
+    expect(ctx.lk.callCount('createPage')).toBe(0)
+    expect(template.origin).toBe('local')
+    expect(template.definition.lkLayout?.sourceKind).toBe('template')
+    expect(template.definition.includeSourcesSection).toBe(false)
+    expect(template.definition.sections.slice(0, 4)).toEqual(['Traits', 'Actions', 'Bonus Actions', 'Legendary Actions'])
+    expect(report?.droppedParts).toHaveLength(2)
+    expect(report?.rows.find((row) => row.key === 'Armour Class')?.fields).toEqual(['Armor Class'])
+
+    // Refreshing updates the same template.
+    const again = await copyLayoutFromLegendKeeper(ctx, { resource: 'l1ylm24t', pageType: 'creature', templateId: template.id })
+    expect(again.template.id).toBe(template.id)
+    expect(ctx.repos.templates.list().filter((t) => t.definition.lkLayout).length).toBe(1)
+  })
+
+  it('accepts a link to a page and explains empty pages', async () => {
+    expect(resourceIdFrom('https://app.legendkeeper.com/a/proj/resources/l1ylm24t/documents/rjemxmxe')).toBe('l1ylm24t')
+    expect(() => resourceIdFrom('not a page!')).toThrow(/page id/)
+    const ctx = setup()
+    await expect(copyLayoutFromLegendKeeper(ctx, { resource: 'pg000001', pageType: 'creature' })).rejects.toThrow(/empty/)
+  })
+})

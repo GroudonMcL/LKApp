@@ -163,6 +163,7 @@ summary { cursor: pointer; color: var(--accent); }
 .lk-preview .lk-mention { color: var(--accent); text-decoration: underline dotted; }
 .lk-preview .lk-kv { width: 100%; font-size: 0.9rem; }
 .lk-preview .lk-kv td { padding: 0.2rem 0.4rem; }
+.lk-preview .lk-infobox-left { float: left; margin: 0 1rem 1rem 0; }
 .lk-preview::after { content: ''; display: block; clear: both; }
 
 .findings li { margin-bottom: 0.25rem; }
@@ -172,3 +173,26 @@ summary { cursor: pointer; color: var(--accent); }
 @media (max-width: 900px) { .field-row { grid-template-columns: 1fr; } }
 .pill-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .confirm-box { border: 2px solid var(--accent); border-radius: var(--radius); padding: 1rem; background: var(--surface); }
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent, #2563eb);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.lk-kv-grid tbody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.lk-kv-inline td {
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
+}
+.lk-image-placeholder {
+  border: 1px dashed var(--border, #ccc);
+  padding: 1rem;
+  text-align: center;
+}

@@ -2,6 +2,7 @@ import 'server-only'
 import type { Db } from './connection'
 import { CanonicalPage, SourceAttribution, type ValidationFinding } from '@/core/page-model'
 import { RecipeDefinition, type Recipe } from '@/core/recipe'
+import { LK_TEMPLATES_PARENT_ID } from '@/core/lk-layout'
 import { TemplateDefinition, type PageTemplate, type TemplateOrigin } from '@/core/template'
 import type { PageTypeGuess } from '@/core/extraction'
 import type { IndexedResource } from '@/core/references'
@@ -593,7 +594,10 @@ export class IndexRepo {
       }
       return names.length ? names.join(' / ') : null
     }
-    return rows.map((row) => ({ id: row.id, name: row.name, aliases: JSON.parse(row.aliases), parentId: row.parent_id, path: pathOf(row), tags: JSON.parse(row.tags) as string[] }))
+    // Templates are listed like pages (with the parent "templates") but are not pages to link to.
+    return rows
+      .filter((row) => row.parent_id !== LK_TEMPLATES_PARENT_ID)
+      .map((row) => ({ id: row.id, name: row.name, aliases: JSON.parse(row.aliases), parentId: row.parent_id, path: pathOf(row), tags: JSON.parse(row.tags) as string[] }))
   }
 
   clear(projectId: string) {
