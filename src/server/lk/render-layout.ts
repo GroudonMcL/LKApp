@@ -2,7 +2,7 @@ import { br, h, links, property, walk, type Block, type Run } from '@legendkeepe
 import { fieldsForLayoutKey, isEmptyImage, isPlaceholderBlock, type LkLayout } from '@/core/lk-layout'
 import { resolvedReferences, writableFields, type CanonicalPage, type PageSection } from '@/core/page-model'
 import type { PageTypeDefinition } from '@/core/page-types'
-import { inlineRuns, mentionTargets, paragraphBlocks, sourcesBlocks } from './render-text'
+import { boldEntryName, inlineRuns, mentionTargets, paragraphBlocks, sourcesBlocks } from './render-text'
 
 /**
  * Fills a layout copied from LegendKeeper (see `src/core/lk-layout.ts`) with a draft.
@@ -81,7 +81,9 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   }
   const sectionChildren = (section: PageSection): Block[] => {
     const linked = new Set<string>()
-    return section.paragraphs.flatMap((paragraph) => paragraphBlocks(paragraph, section.kind === 'unmapped' ? new Map() : targets, linked))
+    return section.paragraphs.flatMap((paragraph) =>
+      paragraphBlocks(section.kind === 'mechanics' ? boldEntryName(paragraph) : paragraph, section.kind === 'unmapped' ? new Map() : targets, linked),
+    )
   }
 
   let nameWritten = false

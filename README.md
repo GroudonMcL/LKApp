@@ -213,6 +213,7 @@ your recipe and choose that template. New pages are built from the same blocks:
 - each titled text block (“Traits”, “Actions”, …) gets the section with the same heading, and
   is left out when the source has none; extra sections (e.g. “Reactions”) become new text
   blocks in the same style;
+- in statblock sections, each entry's name is bold (“**Nimble Feet.** The goblin …”); only title-like names are bolded, and the wording itself is never changed;
 - the description goes where the template has its placeholder text;
 - fields without a row (e.g. Size, Alignment, Gear) are added to the first or last row group.
 

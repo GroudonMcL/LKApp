@@ -231,3 +231,30 @@ describe('copying a layout from LegendKeeper (service)', async () => {
     await expect(copyLayoutFromLegendKeeper(ctx, { resource: 'pg000001', pageType: 'creature' })).rejects.toThrow(/empty/)
   })
 })
+
+describe('bold entry names in statblock sections', async () => {
+  const { boldEntryName } = await import('@/server/lk/render-text')
+  it('bolds the name at the start of each entry', () => {
+    expect(boldEntryName('Nimble Feet. The underboss can take the Disengage action.')).toBe('**Nimble Feet.** The underboss can take the Disengage action.')
+    expect(boldEntryName('Legendary Resistance (3/Day). If the creature fails a saving throw, it succeeds instead.')).toBe('**Legendary Resistance (3/Day).** If the creature fails a saving throw, it succeeds instead.')
+    expect(boldEntryName('Fire Breath (Recharge 5–6). The dragon exhales fire.')).toBe('**Fire Breath (Recharge 5–6).** The dragon exhales fire.')
+    expect(boldEntryName('Scimitar. Melee Attack Roll: +4, reach 5 ft.')).toBe('**Scimitar.** Melee Attack Roll: +4, reach 5 ft.')
+    expect(boldEntryName('Wand of Webs. It casts Web.')).toBe('**Wand of Webs.** It casts Web.')
+  })
+  it('leaves ordinary sentences and already bold names alone', () => {
+    expect(boldEntryName('If the creature fails a saving throw, it can choose to succeed instead.')).toBe('If the creature fails a saving throw, it can choose to succeed instead.')
+    expect(boldEntryName('The goblin flees. It hides.')).toBe('The goblin flees. It hides.')
+    expect(boldEntryName('**Multiattack.** The underboss attacks twice.')).toBe('**Multiattack.** The underboss attacks twice.')
+    expect(boldEntryName('Multiattack')).toBe('Multiattack')
+  })
+  it('shows the names in bold in the filled layout, in mechanics sections only', () => {
+    const page = goblinDraft()
+    page.sections.push({ id: 's-d', heading: 'Description', kind: 'lore', paragraphs: ['Goblin Bosses. They lead war bands.'] })
+    const blocks = renderPageBlocks(page, { pageType: creature, template: template() })
+    const bolds: string[] = []
+    walk(blocks, (block) => {
+      if (block.kind === 'paragraph') for (const run of block.content ?? []) if ('bold' in run && run.bold) bolds.push(run.text)
+    })
+    expect(bolds).toEqual(['Nimble Feet.', 'Multiattack.', 'Scimitar.', 'Redirect Attack.'])
+  })
+})

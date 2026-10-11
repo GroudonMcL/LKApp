@@ -3,7 +3,7 @@ import { acceptedTags, resolvedReferences, writableFields, type CanonicalPage, t
 import type { PageTypeDefinition } from '@/core/page-types'
 import type { TemplateDefinition } from '@/core/template'
 import { renderFromLayout } from './render-layout'
-import { mentionTargets, paragraphBlocks, sourcesBlocks } from './render-text'
+import { boldEntryName, mentionTargets, paragraphBlocks, sourcesBlocks } from './render-text'
 import type { CreatePageInput } from './types'
 
 /**
@@ -59,7 +59,9 @@ export function renderPageBlocks(page: CanonicalPage, ctx: RenderContext): Block
     if (section.kind === 'unmapped') placeStatistics()
     blocks.push(h(2, section.heading))
     const linked = new Set<string>()
-    for (const paragraph of section.paragraphs) blocks.push(...paragraphBlocks(paragraph, section.kind === 'unmapped' ? new Map() : targets, linked))
+    for (const paragraph of section.paragraphs) {
+      blocks.push(...paragraphBlocks(section.kind === 'mechanics' ? boldEntryName(paragraph) : paragraph, section.kind === 'unmapped' ? new Map() : targets, linked))
+    }
   }
   placeStatistics()
 

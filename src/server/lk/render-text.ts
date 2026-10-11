@@ -83,3 +83,24 @@ export function sourcesBlocks(page: CanonicalPage): Block[] {
   const items = page.sources.map((source) => (source.citation ? `${source.title} — ${source.citation}` : source.title))
   return [h(2, 'Sources'), ul(items[0]!, ...items.slice(1))]
 }
+
+const NAME_CONNECTIVES = new Set(['of', 'the', 'and', 'or', 'to', 'in', 'on', 'with', 'from', 'a', 'an', 'at', 'for', 'by'])
+
+/**
+ * Bolds the name at the start of a statblock entry: "Nimble Feet. The underboss …" becomes
+ * "**Nimble Feet.** The underboss …". Only names that look like a title count (at most eight
+ * words, each capitalised apart from small words like "of"; brackets such as "(3/Day)" or
+ * "(Recharge 5–6)" allowed), so an ordinary sentence is left alone. Text already starting in
+ * bold is unchanged. The text itself is not altered, only its formatting.
+ */
+export function boldEntryName(paragraph: string): string {
+  if (paragraph.trimStart().startsWith('**')) return paragraph
+  const match = /^(\s*)([^.:\n]{1,80}?\.)(\s+\S)/.exec(paragraph)
+  if (!match) return paragraph
+  const name = match[2]!
+  const words = name.slice(0, -1).replace(/\([^)]*\)/g, ' ').trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0 || words.length > 8) return paragraph
+  const titleLike = words.every((word, i) => /^[\p{Lu}\d]/u.test(word) || (i > 0 && NAME_CONNECTIVES.has(word.toLowerCase())))
+  if (!titleLike) return paragraph
+  return `${match[1]}**${name}**${paragraph.slice(match[1]!.length + name.length)}`
+}
