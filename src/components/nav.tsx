@@ -12,6 +12,7 @@ const LINKS = [
   { href: '/recipes', label: 'Recipes & templates' },
   { href: '/health', label: 'Wiki Health' },
   { href: '/tagging', label: 'Tagging assistant' },
+  { href: '/migrations', label: 'Template migration' },
   { href: '/tags', label: 'Tag audit' },
   { href: '/history', label: 'History & audit' },
   { href: '/settings', label: 'Settings' },

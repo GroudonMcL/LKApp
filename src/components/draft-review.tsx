@@ -152,7 +152,17 @@ export function DraftReview({ view, sourceText, onChange }: { view: DraftView; s
         )}
       </Card>
 
-      <WritePanel view={view} dirty={dirty} onChange={onChange} />
+      {view.draft.page.migration?.sourceResourceId ? (
+        <Card title="Template migration">
+          <Notice>
+            This draft is the new layout for an existing page. Save your corrections here, then go back to{' '}
+            {view.job?.batchId ? <Link href={`/migrations/${view.job.batchId}`}>its migration job</Link> : 'its migration job'}, refresh the comparison and approve it there.
+            It updates the existing page; it is never created as a new page.
+          </Notice>
+        </Card>
+      ) : (
+        <WritePanel view={view} dirty={dirty} onChange={onChange} />
+      )}
     </>
   )
 }

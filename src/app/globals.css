@@ -222,3 +222,6 @@ summary { cursor: pointer; color: var(--accent); }
 .rule-box { margin-bottom: 0.5rem; }
 .rule-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.5rem 0.75rem; }
 .rule-grid label { display: grid; gap: 0.2rem; }
+.comparison { display: grid; gap: 0.6rem; padding: 0.75rem; background: var(--surface-2); border-radius: var(--radius); }
+.comparison h3 { margin: 0.5rem 0 0.25rem; font-size: 1rem; }
+.compare-panes > div { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem; overflow: auto; max-height: 40rem; }

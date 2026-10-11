@@ -340,6 +340,7 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
           </Card>
 
           <BatchSettings definition={definition} set={set} fields={fields} />
+          <MigrationSettingsCard definition={definition} set={set} />
 
           <Card title="Writing">
             <label className="check">
@@ -359,6 +360,39 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
 }
 
 const FORMAT_OPTIONS = ['text', 'markdown', 'json', 'html', 'docx', 'pdf', 'image'] as const
+
+function MigrationSettingsCard({ definition, set }: { definition: RecipeDefinitionInput; set: (patch: Partial<RecipeDefinitionInput>) => void }) {
+  const m = { notesHeading: 'Notes from the previous layout', keptHeading: 'Kept from the previous layout', tagHandling: 'keep', linkHandling: 'keep_all', ...(definition.migration ?? {}) } as NonNullable<RecipeDefinitionInput['migration']> & { notesHeading: string; keptHeading: string; tagHandling: 'keep' | 'add_accepted'; linkHandling: 'keep_all' | 'warn' }
+  const setM = (patch: Partial<typeof m>) => set({ migration: { ...m, ...patch } })
+  return (
+    <Card title="Template migration (existing pages)">
+      <p className="small muted">
+        Used when this recipe moves existing pages into its template. Text with no place in the new layout is never dropped: it goes under the heading below (or, if “Unmapped
+        content” above is set to “must be moved”, the page cannot be approved until you resolve it).
+      </p>
+      <div className="grid grid-2">
+        <div className="field">
+          <label htmlFor="mg-notes">Heading for text that did not fit</label>
+          <input id="mg-notes" type="text" value={m.notesHeading} onChange={(e) => setM({ notesHeading: e.target.value })} />
+          <label htmlFor="mg-kept">Heading for kept blocks with no matching section</label>
+          <input id="mg-kept" type="text" value={m.keptHeading} onChange={(e) => setM({ keptHeading: e.target.value })} />
+        </div>
+        <div className="field">
+          <label htmlFor="mg-tags">Tags</label>
+          <select id="mg-tags" value={m.tagHandling} onChange={(e) => setM({ tagHandling: e.target.value as 'keep' | 'add_accepted' })}>
+            <option value="keep">Leave the page’s tags as they are</option>
+            <option value="add_accepted">Add tags I accept in the draft (never removes any)</option>
+          </select>
+          <label htmlFor="mg-links">Links the new layout would lose</label>
+          <select id="mg-links" value={m.linkHandling} onChange={(e) => setM({ linkHandling: e.target.value as 'keep_all' | 'warn' })}>
+            <option value="keep_all">Add them back as a link list (recommended)</option>
+            <option value="warn">Only report them</option>
+          </select>
+        </div>
+      </div>
+    </Card>
+  )
+}
 
 function BatchSettings({ definition, set, fields }: { definition: RecipeDefinitionInput; set: (patch: Partial<RecipeDefinitionInput>) => void; fields: FieldDefinition[] }) {
   const extraction = { mode: 'whole', headingLevel: 2, separator: '---', jsonPath: '', jsonNamePath: 'name', jsonIdPath: 'id', minChars: 40, expectLabels: [], ...(definition.extraction ?? {}) } as NonNullable<RecipeDefinitionInput['extraction']> & { mode: string; headingLevel: number; separator: string; jsonPath: string; jsonNamePath: string; jsonIdPath: string; minChars: number; expectLabels: string[] }

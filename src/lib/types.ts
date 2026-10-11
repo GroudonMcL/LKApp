@@ -10,6 +10,7 @@ import type { TagOverview } from '@/server/services/tags'
 import type { batchView, listBatches } from '@/server/services/import-batches'
 import type { healthDashboard, listFindings } from '@/server/services/wiki-health'
 import type { taggingView } from '@/server/services/tagging-batches'
+import type { migrationItem, migrationView, MigrationPlan } from '@/server/services/migrations'
 import type { layoutReport, LkTemplateListing } from '@/server/services/lk-templates'
 import type { PageTemplate } from '@/core/template'
 import type { AuditEvent, ImportJob } from '@/server/db/repositories'
@@ -24,6 +25,10 @@ export type BatchListing = ReturnType<typeof listBatches>
 export type HealthDashboard = ReturnType<typeof healthDashboard>
 export type TaggingView = ReturnType<typeof taggingView>
 export type TaggingItem = TaggingView['items'][number]
+export type MigrationView = ReturnType<typeof migrationView>
+export type MigrationRow = MigrationView['items'][number]
+export type MigrationDetail = ReturnType<typeof migrationItem>
+export type { MigrationPlan }
 export type FindingRow = ReturnType<typeof listFindings>['items'][number]
 export type { LkTemplateListing }
 export type LayoutReport = NonNullable<ReturnType<typeof layoutReport>>
