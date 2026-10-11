@@ -18,6 +18,8 @@ export const FieldMapping = z.object({
   sourcePath: z.string().max(200).nullable().default(null),
   /** A hint for the AI about where this field is found, e.g. "the line starting AC". */
   hint: z.string().max(500).nullable().default(null),
+  /** Extra labels your sources use for this field (added to the built-in aliases), e.g. ["Armour"]. */
+  labels: z.array(z.string().min(1).max(60)).max(20).default([]),
 })
 export type FieldMapping = z.infer<typeof FieldMapping>
 

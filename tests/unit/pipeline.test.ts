@@ -136,9 +136,9 @@ describe('import → transform → draft', () => {
       ...ctx.repos.recipes.get(recipeId(ctx, 'Location gazetteer entry'))!.definition,
       name: 'Location JSON',
       fieldMappings: [
-        { fieldKey: 'region', sourcePath: 'region', hint: null },
-        { fieldKey: 'population', sourcePath: 'population', hint: null },
-        { fieldKey: 'resources', sourcePath: 'resources', hint: null },
+        { fieldKey: 'region', sourcePath: 'region', hint: null, labels: [] },
+        { fieldKey: 'population', sourcePath: 'population', hint: null, labels: [] },
+        { fieldKey: 'resources', sourcePath: 'resources', hint: null, labels: [] },
       ],
     })
     const json = readFileSync(new URL('../fixtures/location.json', import.meta.url), 'utf8')

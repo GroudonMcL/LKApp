@@ -206,6 +206,7 @@ import is open and is deleted when it is completed or cancelled (its SHA-256 has
 
 Most settings are on the recipe form. *Edit as JSON* exposes everything, including:
 
+- **Field labels and aliases.** Without AI, the importer recognises each field by its name and its built-in aliases (e.g. Armor Class = `AC`/`Armour Class`, Hit Points = `HP`, Challenge = `CR`, Ancestry = `Race`/`Species`). Statblock fields may be written without a colon (`AC 17`, `HP 21 (6d6)`), several to a line, and ability scores in the 2014 (`STR 19 (+4)`) or 2024 (`Str 10 +0 +0`) layouts. Add your own labels in the recipe's **Also written as** column (stored as `fieldMappings[].labels`). The AI is told the same aliases.
 - `extraFields` — add fields to a built-in page type for this recipe.
 - `linkPolicy.scanExcludeTags` — pages with these tags are never linked by the automatic name scan (e.g. `["Glossary"]` so rules terms like “Armor Class” are not linked everywhere). Also on the form.
 - `customPageType` — define your own page type, e.g.:

@@ -6,6 +6,7 @@ import type { RecipeDefinition } from './recipe'
 import type { TemplateDefinition } from './template'
 import type { MentionInput } from './references'
 import type { TagCandidate } from './tagging'
+import { normalizeTag } from './text'
 
 /** What a transformation (AI or structural) produces before tags and links are resolved. */
 export interface DraftBuildResult {
@@ -27,6 +28,8 @@ export interface DraftContext {
   sourceTitle: string | null
   attribution: SourceAttribution
   now: string
+  /** Names of tags that already exist in the project, most used first, when known. */
+  existingTags?: string[]
 }
 
 export function emptyFields(pageType: PageTypeDefinition): PageField[] {
@@ -64,7 +67,11 @@ export function applyJsonMappings(fields: PageField[], recipe: RecipeDefinition,
 export function baseTagCandidates(ctx: DraftContext): TagCandidate[] {
   const out: TagCandidate[] = []
   if (ctx.recipe.tagPolicy.includePageTypeTag && ctx.pageType.suggestedTag) {
-    out.push({ value: ctx.pageType.suggestedTag, origin: 'page_type', reason: `Conventional tag for ${ctx.pageType.label} pages.` })
+    // Prefer the conventional tag the project uses most (e.g. "Monster" rather than "Creature").
+    // existingTags is ordered by usage, most used first.
+    const options = new Set([ctx.pageType.suggestedTag, ...ctx.pageType.alternativeTags].map(normalizeTag))
+    const chosen = (ctx.existingTags ?? []).find((tag) => options.has(normalizeTag(tag))) ?? ctx.pageType.suggestedTag
+    out.push({ value: chosen, origin: 'page_type', reason: `Conventional tag for ${ctx.pageType.label} pages.` })
   }
   for (const tag of ctx.recipe.tagPolicy.alwaysAdd) out.push({ value: tag, origin: 'recipe', reason: 'Always added by the recipe.' })
   return out

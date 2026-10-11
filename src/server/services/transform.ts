@@ -61,6 +61,7 @@ export async function runTransform(ctx: AppContext, jobId: string, options: { mo
 
   ctx.repos.jobs.update(jobId, { status: 'transforming', recipeId: recipe.id, error: null })
   const tagInfo = await existingTags(ctx)
+  draftContext.existingTags = tagInfo.tags.map((t) => t.tag)
   let result: DraftBuildResult
   let model: string | null = null
   try {

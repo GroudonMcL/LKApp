@@ -1,14 +1,17 @@
 import { applyJsonMappings, baseTagCandidates, emptyFields, MECHANICS_HEADINGS, newPage, sectionId, type DraftBuildResult, type DraftContext } from './draft-common'
 import { getByPath, jsonValueToText, markdownOutline } from './extraction'
 import type { PageField, PageSection } from './page-model'
+import { abilityHeader, abilityValues, buildLabelIndex, isTableNoise, matchLabel, plainHeading, readAbilityLine, readTypeLine, splitSegments } from './statblock'
 
 /**
  * The structural transformer builds a draft without AI, using only the source's own
  * structure. It never interprets or rewrites text:
  * - Markdown headings become sections; text before the first heading goes into the
  *   template's first section.
- * - Lines like `Armor Class: 15`, `**Armor Class** 15` or `**Armor Class.** 15` fill the
- *   field with that exact label (case-insensitive). The line is then not repeated in the body.
+ * - Lines like `Armor Class: 15`, `**Armor Class** 15`, `AC 17` or `HP 21 (6d6)` fill the
+ *   matching field, using the field's label, its aliases and the recipe's extra labels
+ *   (see statblock.ts). Ability-score tables, the creature type line and plain headings such
+ *   as "Actions" are understood too. Matched text is not repeated in the body.
  * - JSON sources use the recipe's field mappings; other JSON keys are kept as unsorted
  *   source material.
  *
@@ -47,13 +50,21 @@ export function buildStructuralDraft(ctx: DraftContext, format: 'text' | 'markdo
   return { page, mentions: [], tagCandidates: baseTagCandidates(ctx) }
 }
 
+/** Plain-text headings that start a game-mechanics section in statblocks. */
+const STATBLOCK_HEADINGS = ['Traits', 'Actions', 'Bonus Actions', 'Reactions', 'Legendary Actions', 'Lair Actions', 'Mythic Actions', 'Regional Effects', 'Spellcasting']
+const ABILITY_KEYS = ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const
+
 function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'markdown') {
   const fields = initial.map((field) => ({ ...field }))
-  const labelIndex = new Map<string, number>()
-  fields.forEach((field, i) => {
-    labelIndex.set(field.label.toLowerCase(), i)
-    labelIndex.set(field.key.toLowerCase(), i)
-  })
+  const fieldIndex = new Map(fields.map((field, i) => [field.key, i]))
+  const labels = buildLabelIndex(ctx.pageType.fields, ctx.recipe)
+  const setField = (key: string, value: string, quote: string | null, note: string): boolean => {
+    const i = fieldIndex.get(key)
+    if (i === undefined || fields[i]!.value !== null) return false
+    fields[i] = { ...fields[i]!, value, status: 'source', sourceQuote: quote, note }
+    return true
+  }
+  const headings = [...new Set([...ctx.template.sections, ...STATBLOCK_HEADINGS])]
 
   const lines = ctx.sourceText.split('\n')
   const outline = format === 'markdown' ? markdownOutline(ctx.sourceText) : []
@@ -63,11 +74,14 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
   const sections: PageSection[] = []
   let current: { heading: string; lines: string[] } = { heading: ctx.template.sections[0] ?? 'Description', lines: [] }
   const flush = () => {
-    const paragraphs = toParagraphs(current.lines)
-    if (paragraphs.length > 0) {
-      const kind = MECHANICS_HEADINGS.has(current.heading.toLowerCase()) ? 'mechanics' : 'lore'
-      sections.push({ id: sectionId(), heading: current.heading, kind, paragraphs })
-    }
+    const kind = MECHANICS_HEADINGS.has(current.heading.toLowerCase()) ? 'mechanics' : 'lore'
+    // In statblock sections every entry ("Multiattack. …") is its own paragraph.
+    const paragraphs = kind === 'mechanics' ? current.lines.map((l) => l.trim()).filter((l) => l !== '') : toParagraphs(current.lines)
+    if (paragraphs.length > 0) sections.push({ id: sectionId(), heading: current.heading, kind, paragraphs })
+  }
+  const startSection = (heading: string) => {
+    flush()
+    current = { heading, lines: [] }
   }
 
   // For plain text the first line is used as the page name, so it is not repeated in the body.
@@ -75,31 +89,98 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
   const usePlainTitle = titleLine !== -1 && ctx.sourceTitle !== null && lines[titleLine]!.trim() === ctx.sourceTitle.trim()
 
   let inFence = false
+  let contentLines = 0
+  let pendingHeader: ReturnType<typeof abilityHeader> = null
+  const saves: Partial<Record<(typeof ABILITY_KEYS)[number], string>> = {}
+
   for (const [index, line] of lines.entries()) {
     if (usePlainTitle && index === titleLine) continue
     if (/^\s*(```|~~~)/.test(line)) inFence = !inFence
-    const heading = !inFence && format === 'markdown' ? /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line) : null
+    if (inFence) {
+      current.lines.push(line)
+      continue
+    }
+    const heading = format === 'markdown' ? /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line) : null
     if (heading) {
       if (h1 && heading[1]!.length === 1 && heading[2] === h1.heading) continue
-      if (heading[1]!.length <= sectionLevel) {
-        flush()
-        current = { heading: heading[2]!, lines: [] }
+      if (heading[1]!.length <= sectionLevel || plainHeading(heading[2]!, STATBLOCK_HEADINGS)) {
+        startSection(heading[2]!)
         continue
       }
       current.lines.push(`${heading[2]}`)
       continue
     }
-    const pair = inFence ? null : keyValueLine(line)
-    if (pair) {
-      const index = labelIndex.get(pair.key.toLowerCase())
-      if (index !== undefined && fields[index]!.value === null) {
-        fields[index] = { ...fields[index]!, value: pair.value, status: 'source', sourceQuote: line.trim(), note: 'Matched by label.' }
+    if (line.trim() === '') {
+      current.lines.push(line)
+      continue
+    }
+
+    const plain = plainHeading(line, headings)
+    if (plain) {
+      startSection(plain)
+      continue
+    }
+
+    // The creature type line, near the top: "Small Humanoid (Goblinoid), Neutral Evil".
+    if (contentLines < 3 && fieldIndex.has('size')) {
+      const type = readTypeLine(line)
+      if (type) {
+        setField('size', type.size, line.trim(), 'Read from the type line.')
+        setField('creatureType', type.creatureType, line.trim(), 'Read from the type line.')
+        setField('alignment', type.alignment, line.trim(), 'Read from the type line.')
+        contentLines++
         continue
       }
     }
-    current.lines.push(line)
+    contentLines++
+
+    // Ability scores: a header row followed by a value row (2014 table layout).
+    const header = abilityHeader(line)
+    if (header && fieldIndex.has('str')) {
+      pendingHeader = header
+      continue
+    }
+    if (pendingHeader) {
+      if (isTableNoise(line)) continue
+      const values = abilityValues(line)
+      if (values) {
+        pendingHeader.forEach((ability, i) => setField(ability, values[i]!, line.trim(), 'Read from the ability score table.'))
+        pendingHeader = null
+        continue
+      }
+      pendingHeader = null
+    }
+    if (/^\s*\|?\s*(?:mod(?:ifier)?)\s*\|?\s*save\s*\|?\s*$/i.test(line) && fieldIndex.has('str')) continue
+
+    // Ability scores written inline (2014: "STR 19 (+4) …"; 2024: "Str 10 +0 +0").
+    let text = line
+    if (fieldIndex.has('str')) {
+      const abilities = readAbilityLine(line)
+      if (abilities) {
+        for (const key of ABILITY_KEYS) {
+          if (abilities.scores[key]) setField(key, abilities.scores[key]!, line.trim(), 'Read from the ability scores.')
+          if (abilities.saves[key]) saves[key] = abilities.saves[key]
+        }
+        if (abilities.rest === '') continue
+        text = abilities.rest
+      }
+    }
+
+    // "Label value" segments: "AC 17", "HP 21 (6d6)", "Armor Class: 15", "**Speed** 30 ft." …
+    const segments = splitSegments(text)
+    const unmatched = segments.filter((segment) => {
+      const match = matchLabel(segment, labels)
+      return !(match && setField(match.fieldKey, match.value, segment.trim(), `Matched by the label “${match.label}”.`))
+    })
+    if (unmatched.length === 0) continue
+    current.lines.push(unmatched.length === segments.length && text === line ? line : unmatched.join('   '))
   }
   flush()
+
+  // 2024 statblocks give every saving throw in the SAVE column; keep them verbatim.
+  const saveList = ABILITY_KEYS.filter((key) => saves[key]).map((key) => `${key[0]!.toUpperCase()}${key.slice(1)} ${saves[key]}`)
+  if (saveList.length > 0) setField('savingThrows', saveList.join(', '), null, 'Copied from the SAVE column of the ability table.')
+
   return { fields, sections, title: h1?.heading ?? (usePlainTitle ? ctx.sourceTitle : null) }
 }
 

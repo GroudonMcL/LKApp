@@ -183,13 +183,14 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
           </Card>
 
           <Card title="Fields">
-            <p className="small muted">Tick fields that must have a confirmed value before a page can be created. For JSON sources, a path such as <code>stats.ac</code> copies that value verbatim, without AI.</p>
+            <p className="small muted">Tick fields that must have a confirmed value before a page can be created. <strong>Also written as</strong> lists the labels already recognised (grey) and lets you add your own — e.g. if your notes say “Vitality” for Hit Points. For JSON sources, a path such as <code>stats.ac</code> copies that value verbatim, without AI.</p>
             <table>
               <thead>
                 <tr>
                   <th>Field</th>
                   <th>Group</th>
                   <th>Required</th>
+                  <th>Also written as</th>
                   <th>JSON path</th>
                   <th>Hint for the AI</th>
                 </tr>
@@ -197,10 +198,10 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
               <tbody>
                 {fields.map((field) => {
                   const mapping = (definition.fieldMappings ?? []).find((m) => m.fieldKey === field.key)
-                  const setMapping = (patch: { sourcePath?: string | null; hint?: string | null }) => {
+                  const setMapping = (patch: { sourcePath?: string | null; hint?: string | null; labels?: string[] }) => {
                     const others = (definition.fieldMappings ?? []).filter((m) => m.fieldKey !== field.key)
-                    const next = { fieldKey: field.key, sourcePath: mapping?.sourcePath ?? null, hint: mapping?.hint ?? null, ...patch }
-                    set({ fieldMappings: next.sourcePath || next.hint ? [...others, next] : others })
+                    const next = { fieldKey: field.key, sourcePath: mapping?.sourcePath ?? null, hint: mapping?.hint ?? null, labels: mapping?.labels ?? [], ...patch }
+                    set({ fieldMappings: next.sourcePath || next.hint || next.labels.length ? [...others, next] : others })
                   }
                   return (
                     <tr key={field.key}>
@@ -216,6 +217,16 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
                           aria-label={`${field.label} required`}
                           checked={(definition.requiredFields ?? []).includes(field.key)}
                           onChange={(e) => set({ requiredFields: e.target.checked ? [...(definition.requiredFields ?? []), field.key] : (definition.requiredFields ?? []).filter((k) => k !== field.key) })}
+                        />
+                      </td>
+                      <td>
+                        {(field.aliases ?? []).length > 0 && <div className="small muted">{(field.aliases ?? []).join(', ')}</div>}
+                        <input
+                          type="text"
+                          aria-label={`${field.label} extra labels`}
+                          placeholder="your labels, comma-separated"
+                          value={(mapping?.labels ?? []).join(', ')}
+                          onChange={(e) => setMapping({ labels: e.target.value.split(',').map((l) => l.trim()).filter(Boolean) })}
                         />
                       </td>
                       <td>

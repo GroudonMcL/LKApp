@@ -4,7 +4,7 @@ import type { TransformRequest } from '../provider'
  * The transformation prompt. Version-controlled: change PROMPT_VERSION whenever the text
  * changes, so every draft records exactly which prompt produced it.
  */
-export const PROMPT_VERSION = 'transform-v1'
+export const PROMPT_VERSION = 'transform-v2'
 
 export const SYSTEM_PROMPT = `You convert source material for a tabletop role-playing campaign wiki (LegendKeeper) into a structured draft that a human will review before anything is saved.
 
@@ -41,6 +41,10 @@ export function buildUserPrompt(request: TransformRequest): string {
     label: field.label,
     group: field.group,
     ...(field.description ? { description: field.description } : {}),
+    ...(() => {
+      const aliases = [...field.aliases, ...(recipe.fieldMappings.find((m) => m.fieldKey === field.key)?.labels ?? [])]
+      return aliases.length ? { alsoWrittenAs: aliases } : {}
+    })(),
     ...(recipe.requiredFields.includes(field.key) ? { required: true } : {}),
     ...(recipe.fieldMappings.find((m) => m.fieldKey === field.key && m.hint) ? { hint: recipe.fieldMappings.find((m) => m.fieldKey === field.key)!.hint } : {}),
   }))
