@@ -8,6 +8,7 @@ const LINKS = [
   { href: '/connection', label: 'Connection' },
   { href: '/pages', label: 'Page browser' },
   { href: '/import', label: 'Import studio' },
+  { href: '/batches', label: 'Batch jobs' },
   { href: '/recipes', label: 'Recipes & templates' },
   { href: '/tags', label: 'Tag audit' },
   { href: '/history', label: 'History & audit' },
@@ -24,7 +25,7 @@ export function Nav() {
         </span>
         <div>
           <strong>LK Companion</strong>
-          <div className="muted small">Phase 1 · local only</div>
+          <div className="muted small">Phase 2 · local only</div>
         </div>
       </div>
       <ul>

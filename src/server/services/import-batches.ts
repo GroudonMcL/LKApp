@@ -124,7 +124,6 @@ export const CreateBatchInput = z.object({
 export async function createImportBatch(ctx: AppContext, input: z.infer<typeof CreateBatchInput> & { files: BatchFileInput[]; pastes: BatchPasteInput[] }) {
   const recipe = ctx.repos.recipes.get(input.recipeId)
   if (!recipe) throw new ServiceError(400, 'Choose a recipe that exists.')
-  if (input.files.length + input.pastes.length === 0) throw new ServiceError(400, 'Add at least one file or some pasted text.')
   if (input.files.length + input.pastes.length > MAX_FILES_PER_BATCH) throw new ServiceError(400, `A batch takes at most ${MAX_FILES_PER_BATCH} files. Split them into several batches.`)
   if (input.templateId) {
     const template = ctx.repos.templates.get(input.templateId)

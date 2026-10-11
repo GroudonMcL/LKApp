@@ -53,7 +53,15 @@ export default function ImportJobPage({ params }: { params: Promise<{ jobId: str
     <>
       <div className="page-header">
         <p>
-          <Link href="/import">← Import studio</Link>
+          {job.batchId ? <Link href={`/batches/${job.batchId}`}>← Back to the batch</Link> : <Link href="/import">← Import studio</Link>}
+          {job.recordMeta && (
+            <span className="small muted">
+              {' '}
+              · record {job.recordMeta.index + 1} of {job.recordMeta.fileName ?? job.recordMeta.documentTitle ?? 'the source'}
+              {job.recordMeta.section ? ` · ${job.recordMeta.section}` : ''}
+              {job.recordMeta.page ? ` · p. ${job.recordMeta.page}` : ''}
+            </span>
+          )}
         </p>
         <h1>{job.name}</h1>
         <p>

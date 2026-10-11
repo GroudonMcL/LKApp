@@ -202,3 +202,13 @@ summary { cursor: pointer; color: var(--accent); }
   padding: 0.1rem 0.3rem;
   font-size: inherit;
 }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.6rem; margin-bottom: 0.75rem; }
+.stat-value { font-size: 1.5rem; font-weight: 650; }
+.stat-label { color: var(--muted); font-size: 0.85rem; }
+.stat-good .stat-value { color: var(--good, #2e7d32); }
+.stat-warn .stat-value { color: var(--warn, #b26a00); }
+.stat-bad .stat-value { color: var(--bad); }
+.error-text { color: var(--bad); }
+.source-text { max-height: 24rem; overflow: auto; white-space: pre-wrap; font-size: 0.8rem; background: var(--surface-2); padding: 0.5rem; border-radius: 6px; }
+.toolbar { flex-wrap: wrap; margin: 0.5rem 0; }

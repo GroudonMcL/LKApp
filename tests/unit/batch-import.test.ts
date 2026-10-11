@@ -108,6 +108,11 @@ describe('record extraction rules', () => {
     ])
   })
 
+  it('does not treat earlier record headings as the section of later records', () => {
+    const records = extractRecords({ text: BESTIARY, format: 'markdown', title: null }, rules({ mode: 'statblock' }), { maxChars: 10_000 })
+    expect(records.filter((r) => !r.flags.includes('preamble')).map((r) => r.section)).toEqual(['Goblinoids', 'Goblinoids', 'Goblinoids'])
+  })
+
   it('reads JSON arrays with their own ids and flags entries that are not objects', () => {
     const records = extractRecords({ text: ITEMS_JSON, json: JSON.parse(ITEMS_JSON), format: 'json', title: null }, rules({ mode: 'json_array', jsonPath: 'items', minChars: 0 }), { maxChars: 10_000 })
     expect(records.map((r) => [r.title, r.sourceRecordId])).toEqual([
@@ -435,5 +440,23 @@ describe('batch import', () => {
     expect(csv).toContain(`"'=HYPERLINK(""http://evil"")"`)
     expect(csv).not.toContain(ctx.settings.lk.apiKey!)
     expect(toCsv([{ a: 'x,y', b: null }])).toBe('a,b\r\n"x,y",\r\n')
+  })
+})
+
+describe('trying a recipe on sample text', () => {
+  it('splits and drafts a sample without AI or LegendKeeper, and shows defaults and flags', async () => {
+    const { testRecipe } = await import('@/server/services/recipes')
+    const ctx = createTestContext()
+    const result = testRecipe(ctx, {
+      definition: { name: 'T', targetPageType: 'creature', requiredFields: ['hitPoints'], extraction: { mode: 'heading', headingLevel: 2 }, defaultValues: [{ fieldKey: 'edition', value: '2024' }] },
+      text: BESTIARY,
+    })
+    expect(result.recordCount).toBe(3)
+    expect(result.preamble).toHaveLength(1)
+    const goblin = result.drafts[0]!
+    expect(goblin.fields).toEqual(expect.arrayContaining([expect.objectContaining({ label: 'Armor Class', value: '17', status: 'source' }), expect.objectContaining({ label: 'Edition', value: '2024', status: 'default' })]))
+    expect(result.drafts[2]!.findings.some((f) => /Hit Points/.test(f.message) && f.severity === 'error')).toBe(true)
+    expect(ctx.lk.calls).toHaveLength(0)
+    expect(ctx.aiMock.requests).toHaveLength(0)
   })
 })

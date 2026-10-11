@@ -7,6 +7,7 @@ import type { scanStatus, browseIndex } from '@/server/services/discovery'
 import type { draftView } from '@/server/services/drafts'
 import type { prepareWrite, approveWrite, Blocker } from '@/server/services/write'
 import type { TagOverview } from '@/server/services/tags'
+import type { batchView, listBatches } from '@/server/services/import-batches'
 import type { layoutReport, LkTemplateListing } from '@/server/services/lk-templates'
 import type { PageTemplate } from '@/core/template'
 import type { AuditEvent, ImportJob } from '@/server/db/repositories'
@@ -15,6 +16,9 @@ import type { ResourceDetail, DocumentContent, SearchHit, ResourcePage } from '@
 export type ConnectionSummary = ReturnType<typeof connectionSummary>
 export type { ConnectionCheck, TagOverview, AuditEvent, ResourceDetail, DocumentContent, SearchHit, ResourcePage, Blocker }
 export type ScanStatus = ReturnType<typeof scanStatus>
+export type BatchView = ReturnType<typeof batchView>
+export type BatchItemRow = BatchView['items'][number]
+export type BatchListing = ReturnType<typeof listBatches>
 export type { LkTemplateListing }
 export type LayoutReport = NonNullable<ReturnType<typeof layoutReport>>
 export type TemplateWithReport = PageTemplate & { layoutReport: LayoutReport | null }

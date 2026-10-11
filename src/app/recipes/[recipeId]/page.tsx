@@ -107,6 +107,19 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
         >
           {jsonMode ? 'Back to form' : 'Edit as JSON'}
         </Button>
+        {!isNew && (
+          <Button
+            busy={save.busy}
+            onClick={() =>
+              void save.run(async () => {
+                const copy = await api.post<Recipe>('/api/recipes', { ...definition, name: `${definition.name} (copy)` })
+                router.push(`/recipes/${copy.id}`)
+              })
+            }
+          >
+            Duplicate
+          </Button>
+        )}
         <span className="spacer" />
         {!isNew && (
           <Button
@@ -326,6 +339,8 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
             <p className="small muted">These add detail but can never relax the built-in rules: the AI must not invent facts, statistics, dates or names, and must mark missing values as missing.</p>
           </Card>
 
+          <BatchSettings definition={definition} set={set} fields={fields} />
+
           <Card title="Writing">
             <label className="check">
               <input type="checkbox" checked={definition.allowCreate ?? true} onChange={(e) => set({ allowCreate: e.target.checked })} />
@@ -335,8 +350,210 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
               </span>
             </label>
           </Card>
+
+          <TryRecipe definition={definition} />
         </>
       )}
     </>
+  )
+}
+
+const FORMAT_OPTIONS = ['text', 'markdown', 'json', 'html', 'docx', 'pdf', 'image'] as const
+
+function BatchSettings({ definition, set, fields }: { definition: RecipeDefinitionInput; set: (patch: Partial<RecipeDefinitionInput>) => void; fields: FieldDefinition[] }) {
+  const extraction = { mode: 'whole', headingLevel: 2, separator: '---', jsonPath: '', jsonNamePath: 'name', jsonIdPath: 'id', minChars: 40, expectLabels: [], ...(definition.extraction ?? {}) } as NonNullable<RecipeDefinitionInput['extraction']> & { mode: string; headingLevel: number; separator: string; jsonPath: string; jsonNamePath: string; jsonIdPath: string; minChars: number; expectLabels: string[] }
+  const setExtraction = (patch: Record<string, unknown>) => set({ extraction: { ...extraction, ...patch } as RecipeDefinitionInput['extraction'] })
+  const attribution = { includeFile: true, includeSection: true, includePage: true, required: false, ...(definition.attribution ?? {}) }
+  const accepted = (definition.acceptedFormats ?? []) as string[]
+  const defaults = (definition.defaultValues ?? []) as { fieldKey: string; value: string }[]
+  return (
+    <Card title="Batch settings">
+      <p className="small muted">Used when this recipe runs over many files or a document with many entries (Batch import). Single imports ignore the splitting rules.</p>
+      <div className="grid grid-2">
+        <div className="field">
+          <label htmlFor="b-mode">Split each file into records</label>
+          <select id="b-mode" value={extraction.mode} onChange={(e) => setExtraction({ mode: e.target.value })}>
+            <option value="whole">Each file is one record</option>
+            <option value="heading">At headings of one level</option>
+            <option value="statblock">At each statblock (name + “Size Type, Alignment” line)</option>
+            <option value="separator">At separator lines</option>
+            <option value="paragraph">Each blank-line paragraph</option>
+            <option value="json_array">Each item of a JSON list</option>
+          </select>
+          {extraction.mode === 'heading' && (
+            <>
+              <label htmlFor="b-level">Heading level</label>
+              <select id="b-level" value={extraction.headingLevel} onChange={(e) => setExtraction({ headingLevel: Number(e.target.value) })}>
+                {[1, 2, 3, 4, 5, 6].map((n) => (
+                  <option key={n} value={n}>
+                    {'#'.repeat(n)} (level {n})
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {extraction.mode === 'separator' && (
+            <>
+              <label htmlFor="b-sep">Separator line</label>
+              <input id="b-sep" type="text" value={extraction.separator} onChange={(e) => setExtraction({ separator: e.target.value })} />
+            </>
+          )}
+          {extraction.mode === 'json_array' && (
+            <>
+              <label htmlFor="b-jpath">Path to the list</label>
+              <input id="b-jpath" type="text" value={extraction.jsonPath} onChange={(e) => setExtraction({ jsonPath: e.target.value })} placeholder="empty = the file itself" />
+              <label htmlFor="b-jname">Name field</label>
+              <input id="b-jname" type="text" value={extraction.jsonNamePath} onChange={(e) => setExtraction({ jsonNamePath: e.target.value })} />
+              <label htmlFor="b-jid">Identifier field</label>
+              <input id="b-jid" type="text" value={extraction.jsonIdPath} onChange={(e) => setExtraction({ jsonIdPath: e.target.value })} />
+            </>
+          )}
+          <label htmlFor="b-labels">A valid record contains one of these labels (comma-separated)</label>
+          <input id="b-labels" type="text" value={extraction.expectLabels.join(', ')} onChange={(e) => setExtraction({ expectLabels: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} placeholder="e.g. Armor Class, AC" />
+          <label htmlFor="b-min">Flag records shorter than (characters)</label>
+          <input id="b-min" type="number" min={0} value={extraction.minChars} onChange={(e) => setExtraction({ minChars: Number(e.target.value) })} />
+        </div>
+        <div className="field">
+          <label htmlFor="b-dup">When a record matches an existing page</label>
+          <select id="b-dup" value={definition.duplicatePolicy ?? 'require_review'} onChange={(e) => set({ duplicatePolicy: e.target.value as RecipeDefinitionInput['duplicatePolicy'] })}>
+            <option value="require_review">Ask me every time (safest)</option>
+            <option value="skip_exact">Skip exact, verified duplicates; ask about the rest</option>
+            <option value="create_anyway">Create a new page anyway (matches are still shown)</option>
+          </select>
+          <div className="hint small muted">Imports never merge or overwrite existing pages.</div>
+          <label>Accepted file types (none ticked = all)</label>
+          <div className="row">
+            {FORMAT_OPTIONS.map((format) => (
+              <label key={format} className="check">
+                <input
+                  type="checkbox"
+                  checked={accepted.includes(format)}
+                  onChange={(e) => set({ acceptedFormats: (e.target.checked ? [...accepted, format] : accepted.filter((f) => f !== format)) as RecipeDefinitionInput['acceptedFormats'] })}
+                />{' '}
+                {format}
+              </label>
+            ))}
+          </div>
+          <label htmlFor="b-unc">Uncertain values</label>
+          <select id="b-unc" value={definition.uncertainHandling ?? 'warn'} onChange={(e) => set({ uncertainHandling: e.target.value as 'warn' | 'block' })}>
+            <option value="warn">Warn; leave them out of the page</option>
+            <option value="block">Must be resolved before approval</option>
+          </select>
+          <label htmlFor="b-unm">Source text that fits nowhere</label>
+          <select id="b-unm" value={definition.unmappedHandling ?? 'keep'} onChange={(e) => set({ unmappedHandling: e.target.value as 'keep' | 'block' })}>
+            <option value="keep">Keep it in an “Unmapped content” section</option>
+            <option value="block">Must be moved or removed before approval</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>Source attribution on each page</label>
+          {(
+            [
+              ['includeFile', 'File name'],
+              ['includeSection', 'Section heading'],
+              ['includePage', 'Page number (PDF)'],
+              ['required', 'Require attribution (a page without a source is an error)'],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} className="check">
+              <input type="checkbox" checked={attribution[key]} onChange={(e) => set({ attribution: { ...attribution, [key]: e.target.checked } })} /> {label}
+            </label>
+          ))}
+        </div>
+        <div className="field">
+          <label>Default values for empty fields</label>
+          <div className="hint small muted">Written with the status “recipe default”, never as source facts. Leave empty unless every page should have the value.</div>
+          {defaults.map((d, i) => (
+            <div key={i} className="row">
+              <select aria-label="Field" value={d.fieldKey} onChange={(e) => set({ defaultValues: defaults.map((x, j) => (j === i ? { ...x, fieldKey: e.target.value } : x)) })}>
+                {fields.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+              <input aria-label="Value" type="text" value={d.value} onChange={(e) => set({ defaultValues: defaults.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)) })} />
+              <Button variant="ghost" onClick={() => set({ defaultValues: defaults.filter((_, j) => j !== i) })}>
+                Remove
+              </Button>
+            </div>
+          ))}
+          <Button variant="ghost" disabled={fields.length === 0} onClick={() => set({ defaultValues: [...defaults, { fieldKey: fields[0]!.key, value: '' }] })}>
+            Add a default value
+          </Button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+interface TryResult {
+  format: string
+  recordCount: number
+  preamble: string[]
+  records: { title: string; chars: number; flags: string[] }[]
+  drafts: { title: string; section: string | null; name: string; flags: { flag: string; explanation: string }[]; fields: { label: string; value: string | null; status: string; note: string | null }[]; missing: string[]; sections: { heading: string; kind: string; paragraphs: number }[]; findings: { severity: string; message: string }[] }[]
+  shown: number
+}
+
+function TryRecipe({ definition }: { definition: RecipeDefinitionInput }) {
+  const [text, setText] = useState('')
+  const [result, setResult] = useState<TryResult | null>(null)
+  const action = useAction()
+  return (
+    <Card title="Try it on sample text">
+      <p className="small muted">Paste a sample (for example a few statblocks). The app splits it with these settings and drafts the first records without AI. Nothing is saved or sent anywhere. Uses the settings on this screen, saved or not.</p>
+      <textarea aria-label="Sample text" rows={8} value={text} onChange={(e) => setText(e.target.value)} />
+      <div className="row" style={{ marginTop: '0.5rem' }}>
+        <Button busy={action.busy} disabled={!text.trim()} onClick={() => void action.run(async () => setResult(await api.post<TryResult>('/api/recipes/test', { definition, text })))}>
+          Try it
+        </Button>
+      </div>
+      <ErrorBox error={action.error} />
+      {result && (
+        <div style={{ marginTop: '0.75rem' }}>
+          <p>
+            Read as {result.format}; found <strong>{result.recordCount}</strong> record(s){result.preamble.length ? ` and ${result.preamble.length} piece(s) of text outside any record (skipped)` : ''}. Showing the first {result.shown}.
+          </p>
+          {result.drafts.map((draft, i) => (
+            <details key={i} open={i === 0} className="confirm-box" style={{ marginBottom: '0.5rem' }}>
+              <summary>
+                <strong>{draft.name}</strong> {draft.section && <span className="muted small">({draft.section})</span>}{' '}
+                {draft.findings.filter((f) => f.severity === 'error').length > 0 && <Badge tone="bad">{draft.findings.filter((f) => f.severity === 'error').length} error(s)</Badge>}
+                {draft.flags.map((f) => (
+                  <Badge key={f.flag} tone="warn" title={f.explanation}>
+                    {f.flag.replace(/_/g, ' ')}
+                  </Badge>
+                ))}
+              </summary>
+              <table className="small">
+                <tbody>
+                  {draft.fields.map((f) => (
+                    <tr key={f.label}>
+                      <td>{f.label}</td>
+                      <td>{f.value}</td>
+                      <td>
+                        <Badge tone={f.status === 'source' ? 'good' : f.status === 'default' ? 'info' : 'warn'}>{f.status}</Badge> {f.note && <span className="muted">{f.note}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {draft.missing.length > 0 && <p className="small muted">Not found: {draft.missing.join(', ')}</p>}
+              <p className="small">Sections: {draft.sections.map((s) => `${s.heading} (${s.paragraphs})`).join(' · ') || 'none'}</p>
+              {draft.findings.length > 0 && (
+                <ul className="small">
+                  {draft.findings.map((f, j) => (
+                    <li key={j} className={f.severity === 'error' ? 'error-text' : undefined}>
+                      {f.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </details>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }

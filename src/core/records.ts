@@ -115,7 +115,9 @@ export function extractRecords(
   if (rules.mode !== 'whole' && slices.filter((s) => !s.preamble).length === 0) noSplit = true
   if (rules.mode === 'whole' || noSplit) slices = [{ title: source.title ?? firstLine(text), start: 0, end: text.length }]
 
-  const outline = source.format === 'markdown' ? markdownOutline(text) : []
+  // Headings that start a record are record titles, not sections of the records after them.
+  const recordStarts = new Set(slices.filter((s) => !s.preamble).map((s) => s.start))
+  const outline = source.format === 'markdown' ? markdownOutline(text).filter((entry) => !recordStarts.has(entry.offset)) : []
   const records = slices
     .map((slice) => ({ slice, body: text.slice(slice.start, slice.end).trim() }))
     .filter(({ body, slice }) => body !== '' || !slice.preamble)

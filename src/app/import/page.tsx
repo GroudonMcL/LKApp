@@ -21,10 +21,16 @@ export default function ImportStudio() {
       <div className="page-header">
         <h1>Import studio</h1>
         <p>
-          Bring in a file or pasted text, turn it into a draft page with a recipe, review and edit it, and only then — with your approval — create it in LegendKeeper. Phase 1
-          accepts plain text, Markdown and JSON.
+          Bring in a file or pasted text, turn it into a draft page with a recipe, review and edit it, and only then — with your approval — create it in LegendKeeper. A single
+          import takes plain text, Markdown or JSON. For many files, PDF, Word, HTML or images, or a document holding many entries, use a batch import.
         </p>
       </div>
+      <Card title="Batch import" actions={<Link className="btn btn-primary" href="/batches/new">New batch import</Link>}>
+        <p>
+          Import many files — or one document with many entries (a bestiary chapter, a list of magic items) — in one job. Each entry becomes its own draft. You review them,
+          check for duplicates, do a dry run, approve the ones you want and run the batch. <Link href="/batches">See all batch jobs</Link>.
+        </p>
+      </Card>
       <NewImport />
       <RecentImports />
     </>
