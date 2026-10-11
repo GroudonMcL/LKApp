@@ -1,0 +1,9 @@
+{
+  "name": "Hardby",
+  "type": "City",
+  "region": "Wild Coast",
+  "ruler": "Despotrix Seinna",
+  "population": "5,100",
+  "resources": ["fish", "copper"],
+  "notes": "Ruled by the Gynarch of the Despotrix's council."
+}
