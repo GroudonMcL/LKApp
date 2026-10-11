@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { FieldDefinition, PageTypeDefinition } from './page-types'
+import { RecordRules } from './records'
 
 /**
  * A conversion recipe: a reusable, saved description of how to turn a kind of source
@@ -53,6 +54,20 @@ export const LinkPolicy = z.object({
 })
 export type LinkPolicy = z.infer<typeof LinkPolicy>
 
+/** File types a recipe accepts in a batch. Empty means any supported type. */
+export const AcceptedFormat = z.enum(['text', 'markdown', 'json', 'html', 'docx', 'pdf', 'image'])
+export type AcceptedFormat = z.infer<typeof AcceptedFormat>
+
+export const AttributionRules = z.object({
+  /** Add the source file name, the section heading and the page number to each page's source citation. */
+  includeFile: z.boolean().default(true),
+  includeSection: z.boolean().default(true),
+  includePage: z.boolean().default(true),
+  /** A page without source attribution is a validation error (and a Wiki Health finding). */
+  required: z.boolean().default(false),
+})
+export type AttributionRules = z.infer<typeof AttributionRules>
+
 export const RecipeDefinition = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).default(''),
@@ -77,6 +92,32 @@ export const RecipeDefinition = z.object({
   /** Whether a draft made with this recipe may be written to LegendKeeper after approval. */
   allowCreate: z.boolean().default(true),
   defaultParentId: z.string().max(256).nullable().default(null),
+
+  // ── Batch settings (Phase 2). All optional; older recipes get these defaults. ──
+  /** How one source document is split into records. */
+  extraction: RecordRules.default(RecordRules.parse({})),
+  acceptedFormats: z.array(AcceptedFormat).max(7).default([]),
+  /**
+   * What to do when a record matches a page that already exists:
+   * - `require_review` (default): stop and ask, for every possible match.
+   * - `skip_exact`: skip records whose match is exact and verified; ask about the rest.
+   * - `create_anyway`: create new pages even when a match exists (matches are still shown).
+   * Pages are never merged or overwritten by an import.
+   */
+  duplicatePolicy: z.enum(['require_review', 'skip_exact', 'create_anyway']).default('require_review'),
+  /** Values for fields the source leaves empty. Written with status "default" so they are never mistaken for source facts. */
+  defaultValues: z.array(z.object({ fieldKey: z.string().min(1).max(64), value: z.string().min(1).max(2000) })).max(40).default([]),
+  attribution: AttributionRules.default(AttributionRules.parse({})),
+  /**
+   * Uncertain values are never written. `warn`: a draft with uncertain values can still be
+   * approved (those fields are left out). `block`: every uncertain value must be resolved first.
+   */
+  uncertainHandling: z.enum(['warn', 'block']).default('warn'),
+  /**
+   * Source text that fits no field or section. `keep`: written in an "Unmapped content" section
+   * (nothing is lost). `block`: must be moved or removed by the reviewer before approval.
+   */
+  unmappedHandling: z.enum(['keep', 'block']).default('keep'),
 })
 export type RecipeDefinition = z.infer<typeof RecipeDefinition>
 export type RecipeDefinitionInput = z.input<typeof RecipeDefinition>

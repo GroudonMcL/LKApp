@@ -14,6 +14,7 @@ type Tab = 'page' | 'fields' | 'sections' | 'tags' | 'links' | 'notes'
 const FIELD_STATUSES: { value: FieldStatus; label: string }[] = [
   { value: 'source', label: 'From source' },
   { value: 'user', label: 'Confirmed by me' },
+  { value: 'default', label: 'Recipe default' },
   { value: 'uncertain', label: 'Uncertain' },
   { value: 'suggested', label: 'Suggestion' },
   { value: 'missing', label: 'Missing' },

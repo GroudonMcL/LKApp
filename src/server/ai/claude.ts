@@ -2,8 +2,10 @@ import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod'
 import { AiDraftOutput } from '@/core/ai-output'
-import { AiError, type AiProvider, type TransformRequest, type TransformResponse } from './provider'
+import type { z } from 'zod'
+import { AiError, type AiProvider, type TranscribeRequest, type TranscribeResponse, type TransformRequest, type TransformResponse } from './provider'
 import { PROMPT_VERSION, SYSTEM_PROMPT, buildUserPrompt } from './prompts/transform'
+import { TRANSCRIBE_PROMPT_VERSION, TRANSCRIBE_SYSTEM_PROMPT, TranscriptionOutput, transcribeUserPrompt } from './prompts/transcribe'
 import type { AiEffort } from '../config'
 
 /**
@@ -44,17 +46,64 @@ export class ClaudeProvider implements AiProvider {
   }
 
   async transform(request: TransformRequest, signal?: AbortSignal): Promise<TransformResponse> {
+    const { data, message } = await this.run(AiDraftOutput, SYSTEM_PROMPT, buildUserPrompt(request), signal, {
+      refusal: 'The AI declined to process this source. Try the structural (no-AI) transformation, or edit the source.',
+      truncated: 'The AI reply was cut off because the source is too long for one pass. Split the source into smaller sections and import them one at a time.',
+    })
+    return {
+      output: data,
+      model: this.model,
+      servedByModel: message.model,
+      promptVersion: PROMPT_VERSION,
+      inputTokens: message.usage?.input_tokens ?? null,
+      outputTokens: message.usage?.output_tokens ?? null,
+    }
+  }
+
+  async transcribe(request: TranscribeRequest, signal?: AbortSignal): Promise<TranscribeResponse> {
+    const attachment: Anthropic.Beta.BetaContentBlockParam =
+      request.kind === 'pdf'
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: request.base64 } }
+        : { type: 'image', source: { type: 'base64', media_type: request.mediaType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp', data: request.base64 } }
+    const { data, message } = await this.run(
+      TranscriptionOutput,
+      TRANSCRIBE_SYSTEM_PROMPT,
+      [attachment, { type: 'text', text: transcribeUserPrompt(request.kind, request.name) }],
+      signal,
+      {
+        refusal: 'The AI declined to transcribe this file.',
+        truncated: 'The transcription was cut off because the document is too long. Split the PDF into smaller files (for example 20 pages each).',
+      },
+    )
+    return {
+      output: data,
+      model: this.model,
+      servedByModel: message.model,
+      promptVersion: TRANSCRIBE_PROMPT_VERSION,
+      inputTokens: message.usage?.input_tokens ?? null,
+      outputTokens: message.usage?.output_tokens ?? null,
+    }
+  }
+
+  /** One structured-output request: stream, check the stop reason, parse and validate with Zod. */
+  private async run<T extends z.ZodType>(
+    schema: T,
+    system: string,
+    content: string | Anthropic.Beta.BetaContentBlockParam[],
+    signal: AbortSignal | undefined,
+    messages: { refusal: string; truncated: string },
+  ): Promise<{ data: z.infer<T>; message: Anthropic.Beta.BetaMessage }> {
     const useFallbacks = FALLBACK_CAPABLE.has(this.model)
-    let message
+    let message: Anthropic.Beta.BetaMessage
     try {
       const stream = this.client.beta.messages.stream(
         {
           model: this.model,
           max_tokens: this.maxTokens,
           ...(useFallbacks ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
-          system: SYSTEM_PROMPT,
-          output_config: { effort: this.effort, format: betaZodOutputFormat(AiDraftOutput) },
-          messages: [{ role: 'user', content: buildUserPrompt(request) }],
+          system,
+          output_config: { effort: this.effort, format: betaZodOutputFormat(schema) },
+          messages: [{ role: 'user', content }],
         },
         { signal },
       )
@@ -63,13 +112,9 @@ export class ClaudeProvider implements AiProvider {
       throw toAiError(error)
     }
 
-    if (message.stop_reason === 'refusal') {
-      throw new AiError('refusal', 'The AI declined to process this source. Try the structural (no-AI) transformation, or edit the source.', { requestId: message.id })
-    }
+    if (message.stop_reason === 'refusal') throw new AiError('refusal', messages.refusal, { requestId: message.id })
     if (message.stop_reason === 'max_tokens' || message.stop_reason === 'model_context_window_exceeded') {
-      throw new AiError('truncated', 'The AI reply was cut off because the source is too long for one pass. Split the source into smaller sections and import them one at a time.', {
-        requestId: message.id,
-      })
+      throw new AiError('truncated', messages.truncated, { requestId: message.id })
     }
 
     const text = message.content
@@ -80,24 +125,16 @@ export class ClaudeProvider implements AiProvider {
     try {
       raw = JSON.parse(text)
     } catch {
-      throw new AiError('invalid_output', 'The AI reply was not valid JSON. Run the transformation again.', { requestId: message.id })
+      throw new AiError('invalid_output', 'The AI reply was not valid JSON. Run it again.', { requestId: message.id })
     }
-    const parsed = AiDraftOutput.safeParse(raw)
+    const parsed = schema.safeParse(raw)
     if (!parsed.success) {
-      throw new AiError('invalid_output', 'The AI reply did not match the expected structure. Run the transformation again.', {
+      throw new AiError('invalid_output', 'The AI reply did not match the expected structure. Run it again.', {
         requestId: message.id,
         issues: parsed.error.issues.slice(0, 10).map((issue) => `${issue.path.join('.')}: ${issue.message}`),
       })
     }
-
-    return {
-      output: parsed.data,
-      model: this.model,
-      servedByModel: message.model,
-      promptVersion: PROMPT_VERSION,
-      inputTokens: message.usage?.input_tokens ?? null,
-      outputTokens: message.usage?.output_tokens ?? null,
-    }
+    return { data: parsed.data, message }
   }
 }
 

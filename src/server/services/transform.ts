@@ -1,11 +1,14 @@
 import 'server-only'
 import { mapAiOutputToDraft } from '@/core/ai-output'
-import type { DraftBuildResult, DraftContext } from '@/core/draft-common'
+import { applyDefaultValues, type DraftBuildResult, type DraftContext } from '@/core/draft-common'
 import { newAppId } from '@/core/ids'
 import { resolveReferences } from '@/core/references'
 import { resolvePageType, resolveTemplate } from '@/core/resolve'
 import { buildStructuralDraft } from '@/core/structural'
 import { suggestTags } from '@/core/tagging'
+import { AiDraftOutput } from '@/core/ai-output'
+import { sha256Hex, stableStringify } from '../hash'
+import { PROMPT_VERSION } from '../ai/prompts/transform'
 import type { AppContext } from '../context'
 import { AiError } from '../ai/provider'
 import { recordAudit } from './audit'
@@ -24,7 +27,17 @@ export type TransformMode = 'ai' | 'structural'
  *
  * Nothing is written to LegendKeeper here. A finished transformation only produces a draft.
  */
-export async function runTransform(ctx: AppContext, jobId: string, options: { mode: TransformMode; recipeId?: string | null; templateId?: string | null }) {
+export interface TransformOptions {
+  mode: TransformMode
+  recipeId?: string | null
+  /** Use this exact recipe version (batches pin the version they started with). */
+  recipeVersion?: number | null
+  templateId?: string | null
+  /** Reuse a cached AI result for identical inputs (default true). */
+  useCache?: boolean
+}
+
+export async function runTransform(ctx: AppContext, jobId: string, options: TransformOptions) {
   const job = ctx.repos.jobs.get(jobId)
   if (!job) throw new ServiceError(404, 'Import job not found.')
   if (job.status === 'cancelled' || job.status === 'completed') throw new ServiceError(409, `This import is ${job.status}.`)
@@ -37,8 +50,14 @@ export async function runTransform(ctx: AppContext, jobId: string, options: { mo
 
   const recipeId = options.recipeId ?? job.recipeId
   if (!recipeId) throw new ServiceError(400, 'Choose a recipe first.')
-  const recipe = ctx.repos.recipes.get(recipeId)
-  if (!recipe) throw new ServiceError(400, 'The chosen recipe does not exist.')
+  const latest = ctx.repos.recipes.get(recipeId)
+  if (!latest) throw new ServiceError(400, 'The chosen recipe does not exist.')
+  let recipe = latest
+  if (options.recipeVersion && options.recipeVersion !== latest.version) {
+    const pinned = ctx.repos.recipes.getVersion(recipeId, options.recipeVersion)
+    if (!pinned) throw new ServiceError(400, `Version ${options.recipeVersion} of the recipe no longer exists.`)
+    recipe = { ...latest, version: options.recipeVersion, definition: pinned }
+  }
   const pageType = resolvePageType(recipe.definition)
   if (!pageType) throw new ServiceError(400, `The recipe's page type “${recipe.definition.targetPageType}” is not defined.`)
   // A template chosen for this import replaces the recipe's (it must be for the same page type).
@@ -71,19 +90,48 @@ export async function runTransform(ctx: AppContext, jobId: string, options: { mo
   draftContext.existingTags = tagInfo.tags.map((t) => t.tag)
   let result: DraftBuildResult
   let model: string | null = null
+  let fromCache = false
   try {
     if (options.mode === 'ai') {
       const provider = ctx.ai()
       model = provider.model
-      const response = await provider.transform({
-        sourceText: job.sourceText,
-        sourceFormat: job.sourceFormat,
-        sourceName: job.sourceName ?? job.name,
-        pageType,
-        template,
-        recipe: recipe.definition,
-        existingTags: tagInfo.tags.slice(0, 300).map((t) => t.tag),
-      })
+      // Identical inputs (source text, recipe version, template, page type, prompt version,
+      // model) give a reusable result: no second AI call is made or paid for. Tags and links
+      // are re-checked against the current project below either way.
+      const cacheKey = sha256Hex(
+        stableStringify({
+          kind: 'transform',
+          prompt: PROMPT_VERSION,
+          model: provider.model,
+          recipe: [recipe.id, recipe.version],
+          template: templateRecord ? [templateRecord.id, templateRecord.updatedAt] : null,
+          pageType: pageType.id,
+          source: sha256Hex(job.sourceText),
+          format: job.sourceFormat,
+          name: job.sourceName ?? job.name,
+        }),
+      )
+      const cached = options.useCache === false ? null : ctx.repos.aiCache.get(cacheKey)
+      let response
+      if (cached) {
+        const parsed = AiDraftOutput.safeParse(cached.output)
+        if (parsed.success) {
+          fromCache = true
+          response = { output: parsed.data, model: cached.model ?? provider.model, servedByModel: cached.model ?? provider.model, promptVersion: PROMPT_VERSION, inputTokens: 0, outputTokens: 0 }
+        }
+      }
+      if (!response) {
+        response = await provider.transform({
+          sourceText: job.sourceText,
+          sourceFormat: job.sourceFormat,
+          sourceName: job.sourceName ?? job.name,
+          pageType,
+          template,
+          recipe: recipe.definition,
+          existingTags: tagInfo.tags.slice(0, 300).map((t) => t.tag),
+        })
+        ctx.repos.aiCache.set(cacheKey, 'transform', response.output, response.servedByModel, response.inputTokens, response.outputTokens)
+      }
       result = mapAiOutputToDraft(response.output, draftContext, {
         model: response.model,
         servedByModel: response.servedByModel,
@@ -91,6 +139,7 @@ export async function runTransform(ctx: AppContext, jobId: string, options: { mo
         inputTokens: response.inputTokens,
         outputTokens: response.outputTokens,
       })
+      if (fromCache) result.page.reviewerNotes.push('This AI result was reused from an earlier identical run (same source, recipe version, template and prompt); no new AI call was made.')
     } else {
       result = buildStructuralDraft(draftContext, job.sourceFormat)
     }
@@ -115,8 +164,8 @@ export async function runTransform(ctx: AppContext, jobId: string, options: { mo
     throw error
   }
 
-  // Stage B: tags, links, validation.
-  const page = result.page
+  // Stage B: defaults, tags, links, validation.
+  const page = applyDefaultValues(result.page, recipe.definition)
   page.tags = suggestTags(result.tagCandidates, tagInfo.tags, recipe.definition.tagPolicy)
   if (tagInfo.source === 'none') {
     page.reviewerNotes.push('No existing tags were available (no ADMIN key and no project scan yet), so every suggested tag is treated as new.')
@@ -150,6 +199,7 @@ export async function runTransform(ctx: AppContext, jobId: string, options: { mo
     message: `Draft “${page.name}” (${options.mode})`,
     details: {
       mode: options.mode,
+      fromCache,
       promptVersion: page.processing?.promptVersion ?? null,
       inputTokens: page.processing?.inputTokens ?? null,
       outputTokens: page.processing?.outputTokens ?? null,

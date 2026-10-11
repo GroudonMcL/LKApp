@@ -47,6 +47,7 @@ const EnvSchema = z.object({
   LKC_DATABASE_PATH: optionalString,
   LKC_MAX_UPLOAD_BYTES: positiveInt(2_000_000),
   LKC_MAX_SOURCE_CHARS: positiveInt(150_000),
+  LKC_MAX_DOCUMENT_BYTES: positiveInt(25_000_000),
 })
 
 export type KeySource = 'env' | 'memory' | null
@@ -70,7 +71,7 @@ export interface AppConfig {
     effort: AiEffort
   }
   databasePath: string
-  limits: { maxUploadBytes: number; maxSourceChars: number }
+  limits: { maxUploadBytes: number; maxSourceChars: number; maxDocumentBytes: number }
 }
 
 export const DEFAULT_AI_MODEL = 'claude-opus-5-5'
@@ -97,7 +98,7 @@ export function getConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       effort: parsed.LKC_AI_EFFORT,
     },
     databasePath: parsed.LKC_DATABASE_PATH ?? './data/lk-companion.db',
-    limits: { maxUploadBytes: parsed.LKC_MAX_UPLOAD_BYTES, maxSourceChars: parsed.LKC_MAX_SOURCE_CHARS },
+    limits: { maxUploadBytes: parsed.LKC_MAX_UPLOAD_BYTES, maxSourceChars: parsed.LKC_MAX_SOURCE_CHARS, maxDocumentBytes: parsed.LKC_MAX_DOCUMENT_BYTES },
   }
 }
 

@@ -17,12 +17,13 @@ export const CANONICAL_SCHEMA_VERSION = 1
  * - `uncertain`: the source is ambiguous or contradictory. Never written unless confirmed.
  * - `missing`: the source does not say. Never guessed.
  * - `user`: entered or confirmed by the user in the review screen.
+ * - `default`: not in the source; filled from a default value you configured in the recipe.
  */
-export const FieldStatus = z.enum(['source', 'suggested', 'uncertain', 'missing', 'user'])
+export const FieldStatus = z.enum(['source', 'suggested', 'uncertain', 'missing', 'user', 'default'])
 export type FieldStatus = z.infer<typeof FieldStatus>
 
 /** Statuses whose values are written to LegendKeeper. Everything else is review-only. */
-export const WRITABLE_FIELD_STATUSES: readonly FieldStatus[] = ['source', 'user']
+export const WRITABLE_FIELD_STATUSES: readonly FieldStatus[] = ['source', 'user', 'default']
 
 export const PageField = z.object({
   key: z.string().min(1).max(64),

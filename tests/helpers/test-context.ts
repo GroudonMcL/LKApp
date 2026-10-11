@@ -25,7 +25,7 @@ export function createTestContext(options: { resources?: ConstructorParameters<t
     lk: { apiKey: 'lk_test_key_for_unit_tests', apiKeySource: 'env', baseUrl: null, allowWrites: true, sandboxParentId: 'sandbox0001', ...options.config?.lk },
     ai: { apiKey: 'sk-ant-test-key-for-unit-tests', apiKeySource: 'env', enabled: true, disabledByEnv: false, model: 'mock-model', effort: 'high', ...options.config?.ai },
     databasePath: ':memory:',
-    limits: { maxUploadBytes: 200_000, maxSourceChars: 20_000 },
+    limits: { maxUploadBytes: 200_000, maxSourceChars: 20_000, maxDocumentBytes: 5_000_000 },
   }
   const clock = { now: new Date('2026-10-11T12:00:00Z') }
   const ctx: TestContext = {

@@ -40,6 +40,8 @@ export class MockConnector implements LegendKeeperConnector {
   resources = new Map<string, MockResource>()
   isAdmin = true
   createBehavior: CreateBehavior = 'ok'
+  /** Per page name, overrides `createBehavior` (to fail one record of a batch). */
+  createBehaviorByName = new Map<string, CreateBehavior>()
   failReads: ConnectorError | null = null
   pageSize: number | null = null
   calls: { method: string; args: unknown }[] = []
@@ -155,7 +157,7 @@ export class MockConnector implements LegendKeeperConnector {
         documents: [{ id: `doc_${input.resourceId}`, name: input.documentName, type: 'page', blocks: input.blocks, version: 'v1', text }],
       })
     }
-    switch (this.createBehavior) {
+    switch (this.createBehaviorByName.get(input.name) ?? this.createBehavior) {
       case 'permission_error':
         throw new ConnectorError('permission', 'forbidden', { status: 403, code: 'FORBIDDEN', requestId: 'req_mock_403', outcome: 'not_applied' })
       case 'validation_error':

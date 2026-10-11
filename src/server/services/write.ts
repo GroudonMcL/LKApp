@@ -86,10 +86,31 @@ function renderFor(ctx: AppContext, draft: Draft, page: CanonicalPage, plannedRe
 
 // ── Step 1: prepare (final preview) ─────────────────────────────────────────
 
-export async function prepareWrite(ctx: AppContext, draftId: string) {
+export interface PrepareOptions {
+  /** Run every check but do not plan a page id or create an approval. Never writes. */
+  dryRun?: boolean
+  /** How long the approval stays valid (single pages: 15 minutes; batches: longer, re-checked before writing). */
+  ttlMs?: number
+  /** The live project, already confirmed by the caller (batches check the connection once). */
+  project?: { id: string; name: string }
+}
+
+/** The final preview with a one-time approval token. */
+export async function prepareWrite(ctx: AppContext, draftId: string, options: Omit<PrepareOptions, 'dryRun'> = {}) {
+  const prepared = await prepareInternal(ctx, draftId, { ...options, dryRun: false })
+  return { ...prepared, approvalToken: prepared.approvalToken!, expiresAt: prepared.expiresAt!, plannedResourceId: prepared.plannedResourceId! }
+}
+
+/** Every check of the final preview, without planning or approving anything. Never writes. */
+export async function dryRunWrite(ctx: AppContext, draftId: string, options: Omit<PrepareOptions, 'dryRun'> = {}) {
+  return prepareInternal(ctx, draftId, { ...options, dryRun: true })
+}
+
+async function prepareInternal(ctx: AppContext, draftId: string, options: PrepareOptions) {
   const draft = getDraft(ctx, draftId)
   const blockers = draftBlockers(ctx, draft)
   if (blockers.length) {
+    if (options.dryRun) throw new ServiceError(409, 'Writing is not possible yet.', blockers.map((b) => b.message), 'BLOCKED')
     recordAudit(ctx, { operation: 'write.prepare', outcome: 'blocked', draftId, jobId: draft.jobId, message: blockers.map((b) => b.message).join(' '), details: { blockers } })
     throw new ServiceError(409, 'Writing is not possible yet.', blockers.map((b) => b.message), 'BLOCKED')
   }
@@ -101,12 +122,14 @@ export async function prepareWrite(ctx: AppContext, draftId: string) {
 
   const connector = ctx.connector()
   // Confirm the connection live and that the key still points at the expected project.
-  let project
-  try {
-    project = await connector.getProject()
-    await connector.pingProject(project.id)
-  } catch (error) {
-    throw new ServiceError(502, `The LegendKeeper connection is not working: ${toConnectorError(error).message}`)
+  let project = options.project
+  if (!project) {
+    try {
+      project = await connector.getProject()
+      await connector.pingProject(project.id)
+    } catch (error) {
+      throw new ServiceError(502, `The LegendKeeper connection is not working: ${toConnectorError(error).message}`)
+    }
   }
   const expected = knownProjectId(ctx)
   if (expected && expected !== project.id) {
@@ -153,16 +176,39 @@ export async function prepareWrite(ctx: AppContext, draftId: string) {
     /* search is advisory only */
   }
 
+  const warnings = findings.filter((f) => f.severity === 'warning').map((f) => f.message)
+  for (const match of sameName) warnings.push(`LegendKeeper search found a page with the same name: ${match.path} (${match.id}).`)
+
+  if (options.dryRun) {
+    // Same checks and the same rendered content as a real preview, but nothing is planned or approved.
+    const { payload, hash } = renderFor(ctx, draft, page, draft.plannedResourceId ?? 'a0000000000000000000000a')
+    return {
+      approvalToken: null as string | null,
+      expiresAt: null as string | null,
+      payloadHash: hash.slice(0, 16),
+      project: { id: project.id, name: project.name },
+      plannedResourceId: null as string | null,
+      name: payload.name,
+      parent,
+      tags: page.tags.filter((t) => t.accepted && t.status !== 'rejected').map((t) => ({ value: t.existingMatch ?? t.value, status: t.status })),
+      aliases: payload.aliases,
+      links,
+      documentName: payload.documentName,
+      blocks: payload.blocks,
+      bytes: payloadBytes(payload),
+      warnings,
+      sameName,
+    }
+  }
+
   const plannedResourceId = draft.plannedResourceId ?? newLkResourceId()
   const { payload, hash } = renderFor(ctx, draft, page, plannedResourceId)
   ctx.repos.drafts.setPlannedWrite(draft.id, plannedResourceId, payload.idempotencyKey)
   ctx.repos.drafts.setStatus(draft.id, draft.status, { page })
   const token = randomToken()
-  const expiresAt = new Date(ctx.now().getTime() + APPROVAL_TTL_MS).toISOString()
+  const expiresAt = new Date(ctx.now().getTime() + (options.ttlMs ?? APPROVAL_TTL_MS)).toISOString()
   ctx.repos.drafts.setApproval(draft.id, token, hash, expiresAt)
 
-  const warnings = findings.filter((f) => f.severity === 'warning').map((f) => f.message)
-  for (const match of sameName) warnings.push(`LegendKeeper search found a page with the same name: ${match.path} (${match.id}).`)
   recordAudit(ctx, {
     operation: 'write.prepare',
     outcome: 'success',
@@ -178,11 +224,11 @@ export async function prepareWrite(ctx: AppContext, draftId: string) {
   })
 
   return {
-    approvalToken: token,
-    expiresAt,
+    approvalToken: token as string | null,
+    expiresAt: expiresAt as string | null,
     payloadHash: hash.slice(0, 16),
     project: { id: project.id, name: project.name },
-    plannedResourceId,
+    plannedResourceId: plannedResourceId as string | null,
     name: payload.name,
     parent,
     tags: page.tags.filter((t) => t.accepted && t.status !== 'rejected').map((t) => ({ value: t.existingMatch ?? t.value, status: t.status })),
@@ -192,6 +238,7 @@ export async function prepareWrite(ctx: AppContext, draftId: string) {
     blocks: payload.blocks,
     bytes: payloadBytes(payload),
     warnings,
+    sameName,
   }
 }
 

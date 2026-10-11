@@ -6,6 +6,7 @@ import { LK_TEMPLATES_PARENT_ID } from '@/core/lk-layout'
 import { TemplateDefinition, type PageTemplate, type TemplateOrigin } from '@/core/template'
 import type { PageTypeGuess } from '@/core/extraction'
 import type { IndexedResource } from '@/core/references'
+import { AiCacheRepo, BatchesRepo, BatchItemsRepo, BatchSourcesRepo } from './batch-repositories'
 
 const now = () => new Date().toISOString()
 const json = (value: unknown) => JSON.stringify(value)
@@ -133,8 +134,23 @@ export interface ImportJob {
   pageTypeGuesses: PageTypeGuess[]
   warnings: string[]
   error: string | null
+  /** Set when this job is one record of a batch. */
+  batchId: string | null
+  recordMeta: RecordMeta | null
   createdAt: string
   updatedAt: string
+}
+
+/** Where a batch record came from in its source document. */
+export interface RecordMeta {
+  sourceId: string
+  fileName: string | null
+  documentTitle: string | null
+  section: string | null
+  page: number | null
+  sourceRecordId: string | null
+  index: number
+  flags: string[]
 }
 
 interface JobRow {
@@ -142,6 +158,7 @@ interface JobRow {
   source_format: 'text' | 'markdown' | 'json'; source_size: number; source_sha256: string; source_text: string | null
   source_json: string | null; source_purged_at: string | null; attribution: string; recipe_id: string | null
   page_type_guesses: string | null; warnings: string; error: string | null; created_at: string; updated_at: string
+  batch_id: string | null; record_meta: string | null
 }
 const toJob = (row: JobRow): ImportJob => ({
   id: row.id,
@@ -160,20 +177,22 @@ const toJob = (row: JobRow): ImportJob => ({
   pageTypeGuesses: parse<PageTypeGuess[]>(row.page_type_guesses) ?? [],
   warnings: JSON.parse(row.warnings) as string[],
   error: row.error,
+  batchId: row.batch_id ?? null,
+  recordMeta: parse<RecordMeta>(row.record_meta ?? null),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })
 
 export class JobsRepo {
   constructor(private readonly db: Db) {}
-  insert(job: Omit<ImportJob, 'createdAt' | 'updatedAt' | 'sourcePurgedAt' | 'error'>) {
+  insert(job: Omit<ImportJob, 'createdAt' | 'updatedAt' | 'sourcePurgedAt' | 'error' | 'batchId' | 'recordMeta'> & { batchId?: string | null; recordMeta?: RecordMeta | null }) {
     const at = now()
     this.db
       .prepare(
         `INSERT INTO import_jobs (id, name, status, source_name, source_kind, source_format, source_size, source_sha256, source_text, source_json,
-          attribution, recipe_id, page_type_guesses, warnings, created_at, updated_at)
+          attribution, recipe_id, page_type_guesses, warnings, batch_id, record_meta, created_at, updated_at)
          VALUES (@id, @name, @status, @sourceName, @sourceKind, @sourceFormat, @sourceSize, @sourceSha256, @sourceText, @sourceJson,
-          @attribution, @recipeId, @guesses, @warnings, @at, @at)`,
+          @attribution, @recipeId, @guesses, @warnings, @batchId, @recordMeta, @at, @at)`,
       )
       .run({
         ...job,
@@ -181,6 +200,8 @@ export class JobsRepo {
         attribution: json(job.attribution),
         guesses: json(job.pageTypeGuesses),
         warnings: json(job.warnings),
+        batchId: job.batchId ?? null,
+        recordMeta: job.recordMeta ? json(job.recordMeta) : null,
         at,
       })
   }
@@ -188,9 +209,10 @@ export class JobsRepo {
     const row = this.db.prepare('SELECT * FROM import_jobs WHERE id = ?').get(id) as JobRow | undefined
     return row ? toJob(row) : null
   }
+  /** Single imports (batch records are listed with their batch). */
   list(limit = 50, offset = 0): { items: Omit<ImportJob, 'sourceText' | 'sourceJson'>[]; total: number } {
-    const rows = this.db.prepare('SELECT * FROM import_jobs ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as JobRow[]
-    const total = (this.db.prepare('SELECT COUNT(*) AS n FROM import_jobs').get() as { n: number }).n
+    const rows = this.db.prepare('SELECT * FROM import_jobs WHERE batch_id IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as JobRow[]
+    const total = (this.db.prepare('SELECT COUNT(*) AS n FROM import_jobs WHERE batch_id IS NULL').get() as { n: number }).n
     return { items: rows.map((row) => ({ ...toJob({ ...row, source_text: null, source_json: null }) })), total }
   }
   update(id: string, patch: { status?: JobStatus; error?: string | null; recipeId?: string | null; name?: string; attribution?: SourceAttribution }) {
@@ -207,6 +229,17 @@ export class JobsRepo {
         now(),
         id,
       )
+  }
+  listByBatch(batchId: string): ImportJob[] {
+    return (this.db.prepare('SELECT * FROM import_jobs WHERE batch_id = ? ORDER BY created_at').all(batchId) as JobRow[]).map(toJob)
+  }
+  /** Replaces a batch record's text (after the reviewer re-splits it); only while no draft exists. */
+  updateSource(id: string, patch: { sourceText: string; sourceJson?: unknown; sourceSha256: string; sourceSize: number; recordMeta?: RecordMeta }) {
+    const current = this.get(id)
+    if (!current) return
+    this.db
+      .prepare('UPDATE import_jobs SET source_text = ?, source_json = ?, source_sha256 = ?, source_size = ?, record_meta = ?, updated_at = ? WHERE id = ?')
+      .run(patch.sourceText, patch.sourceJson === undefined ? null : json(patch.sourceJson), patch.sourceSha256, patch.sourceSize, json(patch.recordMeta ?? current.recordMeta), now(), id)
   }
   /** Deletes the stored source text (the hash stays, so the source can still be identified). */
   purgeSource(id: string) {
@@ -345,6 +378,12 @@ export class DraftsRepo {
     this.db
       .prepare(`UPDATE drafts SET status = 'awaiting_approval', approval_token = ?, approval_payload_hash = ?, approval_expires_at = ?, updated_at = ? WHERE id = ?`)
       .run(token, payloadHash, expiresAt, now(), id)
+  }
+  /** Withdraws a pending approval (the draft goes back to review). */
+  revokeApproval(id: string) {
+    this.db
+      .prepare(`UPDATE drafts SET status = CASE WHEN status = 'awaiting_approval' THEN 'draft' ELSE status END, approval_token = NULL, approval_payload_hash = NULL, approval_expires_at = NULL, updated_at = ? WHERE id = ?`)
+      .run(now(), id)
   }
   /**
    * Atomically moves an approved draft into `writing`. Returns false when another request
@@ -676,6 +715,10 @@ export interface Repos {
   audit: AuditRepo
   index: IndexRepo
   verifications: VerificationRepo
+  batches: BatchesRepo
+  batchSources: BatchSourcesRepo
+  batchItems: BatchItemsRepo
+  aiCache: AiCacheRepo
 }
 
 export function createRepos(db: Db): Repos {
@@ -688,5 +731,9 @@ export function createRepos(db: Db): Repos {
     audit: new AuditRepo(db),
     index: new IndexRepo(db),
     verifications: new VerificationRepo(db),
+    batches: new BatchesRepo(db),
+    batchSources: new BatchSourcesRepo(db),
+    batchItems: new BatchItemsRepo(db),
+    aiCache: new AiCacheRepo(db),
   }
 }

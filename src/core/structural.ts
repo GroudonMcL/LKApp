@@ -63,8 +63,18 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
   const labels = buildLabelIndex(ctx.pageType.fields, ctx.recipe)
   const setField = (key: string, value: string, quote: string | null, note: string): boolean => {
     const i = fieldIndex.get(key)
-    if (i === undefined || fields[i]!.value !== null) return false
-    fields[i] = { ...fields[i]!, value, status: 'source', sourceQuote: quote, note }
+    if (i === undefined) return false
+    const current = fields[i]!
+    if (current.value !== null) {
+      // The same field appears twice. Identical values are fine; different values are a
+      // conflict for the reviewer, never resolved by picking one.
+      const same = current.value.replace(/\s+/g, ' ').trim().toLowerCase() === value.replace(/\s+/g, ' ').trim().toLowerCase()
+      if (!same) {
+        fields[i] = { ...current, status: 'uncertain', note: `Conflicting values in the source: “${current.value}” and “${value}”. Check which is correct.` }
+      }
+      return false
+    }
+    fields[i] = { ...current, value, status: 'source', sourceQuote: quote, note }
     return true
   }
   const headings = [...new Set([...ctx.template.sections, ...STATBLOCK_HEADINGS])]

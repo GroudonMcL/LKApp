@@ -14,6 +14,10 @@ import type { SqliteDb } from './sqlite'
  *   aliases, parents). No page content. Used for tag audits and link suggestions.
  * - write_verifications: proof that page creation worked against your project.
  * - settings: non-secret preferences. API keys are never stored in the database.
+ * - batches / batch_sources / batch_items: batch jobs (Phase 2). Source text and uploaded
+ *   files are kept only while a batch is open, then deleted (hashes stay).
+ * - ai_cache: AI results keyed by a fingerprint of their inputs, so identical work is not
+ *   paid for twice.
  */
 export interface Migration {
   version: number
@@ -174,6 +178,107 @@ CREATE TABLE write_verifications (
   document_id TEXT,
   details TEXT NOT NULL,
   verified_at TEXT NOT NULL
+);
+`,
+  },
+  {
+    version: 2,
+    name: 'batches: multi-file, multi-record jobs and shared batch items',
+    sql: `
+-- A batch is one job over many items: importing records, applying tags, migrating pages.
+CREATE TABLE batches (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  recipe_id TEXT,
+  recipe_version INTEGER,
+  template_id TEXT,
+  options TEXT NOT NULL DEFAULT '{}',
+  error TEXT,
+  cancel_requested INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT
+);
+CREATE INDEX batches_created ON batches(created_at);
+
+-- The input files of an import batch. Text is kept only while the batch is open.
+CREATE TABLE batch_sources (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL REFERENCES batches(id),
+  seq INTEGER NOT NULL,
+  file_name TEXT,
+  mime_type TEXT,
+  original_format TEXT NOT NULL,
+  format TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  status TEXT NOT NULL,
+  method TEXT NOT NULL,
+  title TEXT,
+  text TEXT,
+  json TEXT,
+  pages TEXT NOT NULL DEFAULT '[]',
+  total_pages INTEGER,
+  media_type TEXT,
+  blob BLOB,
+  warnings TEXT NOT NULL DEFAULT '[]',
+  error TEXT,
+  record_count INTEGER NOT NULL DEFAULT 0,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  purged_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX batch_sources_batch ON batch_sources(batch_id, seq);
+
+-- One item per record or page. Status: pending, processing, awaiting_review, approved,
+-- running, succeeded, failed, skipped, cancelled, needs_reconciliation.
+CREATE TABLE batch_items (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL REFERENCES batches(id),
+  seq INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  title TEXT NOT NULL,
+  source_id TEXT,
+  job_id TEXT,
+  resource_id TEXT,
+  flags TEXT NOT NULL DEFAULT '[]',
+  match TEXT,
+  decision TEXT,
+  plan TEXT,
+  plan_hash TEXT,
+  base_fingerprint TEXT,
+  approved_at TEXT,
+  result TEXT,
+  error TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX batch_items_batch ON batch_items(batch_id, seq);
+CREATE INDEX batch_items_status ON batch_items(batch_id, status);
+
+-- Records of a batch are import jobs (each with its own draft), linked back to the batch.
+ALTER TABLE import_jobs ADD COLUMN batch_id TEXT;
+ALTER TABLE import_jobs ADD COLUMN record_meta TEXT;
+CREATE INDEX import_jobs_batch ON import_jobs(batch_id);
+
+-- AI results reused for an identical record, recipe version, template and prompt version.
+CREATE TABLE ai_cache (
+  key TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  output TEXT NOT NULL,
+  model TEXT,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  created_at TEXT NOT NULL
 );
 `,
   },

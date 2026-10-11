@@ -108,3 +108,17 @@ export function sectionId(): string {
 export const MECHANICS_HEADINGS = new Set(
   ['traits', 'actions', 'bonus actions', 'reactions', 'legendary actions', 'lair actions', 'rules text', 'properties', 'statistics', 'spellcasting', 'mythic actions'].map((h) => h.toLowerCase()),
 )
+
+/**
+ * Fills fields the source left empty with the recipe's configured default values. They get
+ * status `default`, so they are never mistaken for source facts. Source values always win.
+ */
+export function applyDefaultValues(page: CanonicalPage, recipe: RecipeDefinition): CanonicalPage {
+  if (recipe.defaultValues.length === 0) return page
+  const fields = page.fields.map((field) => {
+    const configured = recipe.defaultValues.find((d) => d.fieldKey === field.key)
+    if (!configured || (field.value !== null && field.value.trim() !== '' && field.status !== 'missing')) return field
+    return { ...field, value: configured.value, status: 'default' as const, sourceQuote: null, note: 'Default value from the recipe (not in the source).' }
+  })
+  return { ...page, fields }
+}

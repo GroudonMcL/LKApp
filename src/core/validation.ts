@@ -1,4 +1,4 @@
-import { CanonicalPage, type ValidationFinding } from './page-model'
+import { CanonicalPage, WRITABLE_FIELD_STATUSES, type ValidationFinding } from './page-model'
 import { checkFieldValue, type PageTypeDefinition } from './page-types'
 import type { RecipeDefinition } from './recipe'
 import { MAX_TAGS_PER_RESOURCE } from './tagging'
@@ -88,12 +88,12 @@ export function validateDraft(input: unknown, ctx: ValidationContext): { page: C
     const definition = ctx.pageType?.fields.find((f) => f.key === field.key)
     if (ctx.pageType && !definition) add('warning', 'FIELD_UNKNOWN', path, `“${field.label}” is not a field of this page type and will not be written.`)
     const hasValue = field.value !== null && field.value.trim() !== ''
-    const writable = hasValue && (field.status === 'source' || field.status === 'user')
+    const writable = hasValue && WRITABLE_FIELD_STATUSES.includes(field.status)
     if (required.has(field.key) && !writable) {
       add('error', 'REQUIRED_FIELD_MISSING', path, `“${field.label}” is required by the recipe but has no confirmed value. Enter it from the source, or change the recipe.`)
     }
     if (hasValue && field.status === 'uncertain') {
-      add('warning', 'FIELD_UNCERTAIN', path, `“${field.label}” is uncertain and will not be written unless you confirm it.${field.note ? ` ${field.note}` : ''}`)
+      add(ctx.recipe?.uncertainHandling === 'block' ? 'error' : 'warning', 'FIELD_UNCERTAIN', path, `“${field.label}” is uncertain and will not be written unless you confirm it.${field.note ? ` ${field.note}` : ''}`)
     }
     if (hasValue && field.status === 'suggested') {
       add('warning', 'FIELD_SUGGESTED', path, `“${field.label}” is a suggestion, not a source fact, and will not be written unless you confirm it.`)
@@ -119,13 +119,17 @@ export function validateDraft(input: unknown, ctx: ValidationContext): { page: C
     }
   })
 
+  if (ctx.recipe?.attribution.required && page.sources.length === 0) {
+    add('error', 'ATTRIBUTION_MISSING', 'sources', 'The recipe requires source attribution, but this draft has no source.')
+  }
+
   // Sections
-  const writableFieldCount = page.fields.filter((f) => f.value && (f.status === 'source' || f.status === 'user')).length
+  const writableFieldCount = page.fields.filter((f) => f.value && WRITABLE_FIELD_STATUSES.includes(f.status)).length
   if (page.sections.length === 0 && writableFieldCount === 0) add('error', 'EMPTY_DRAFT', 'sections', 'The draft has no content to write.')
   page.sections.forEach((section, i) => {
     if (section.paragraphs.length === 0) add('info', 'SECTION_EMPTY', `sections.${i}`, `The section “${section.heading}” is empty and will be skipped.`)
     if (section.kind === 'unmapped') {
-      add('warning', 'UNMAPPED_CONTENT', `sections.${i}`, `“${section.heading}” holds source text that did not fit the template. Move it into the right section or keep it as is.`)
+      add(ctx.recipe?.unmappedHandling === 'block' && section.paragraphs.length > 0 ? 'error' : 'warning', 'UNMAPPED_CONTENT', `sections.${i}`, `“${section.heading}” holds source text that did not fit the template. Move it into the right section or keep it as is.`)
     }
     if (ctx.sourceText !== null) {
       const sourceNumbers = new Set(numberTokens(ctx.sourceText))

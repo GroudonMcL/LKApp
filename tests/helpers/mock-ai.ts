@@ -1,5 +1,6 @@
 import type { AiDraftOutput } from '@/core/ai-output'
-import { AiError, type AiProvider, type TransformRequest, type TransformResponse } from '@/server/ai/provider'
+import { AiError, type AiProvider, type TranscribeRequest, type TranscribeResponse, type TransformRequest, type TransformResponse } from '@/server/ai/provider'
+import { TRANSCRIBE_PROMPT_VERSION, type TranscriptionOutput } from '@/server/ai/prompts/transcribe'
 import { buildUserPrompt, PROMPT_VERSION } from '@/server/ai/prompts/transform'
 
 /** A scripted AI provider. Records the prompts it receives; never calls a real API. */
@@ -9,6 +10,8 @@ export class MockAiProvider implements AiProvider {
   requests: TransformRequest[] = []
   prompts: string[] = []
   next: AiDraftOutput | AiError | (() => unknown) | null = null
+  transcriptions: TranscribeRequest[] = []
+  nextTranscription: TranscriptionOutput | AiError | null = null
 
   async transform(request: TransformRequest): Promise<TransformResponse> {
     this.requests.push(request)
@@ -18,6 +21,14 @@ export class MockAiProvider implements AiProvider {
     if (next === null) throw new AiError('unknown', 'No scripted response')
     const output = typeof next === 'function' ? (next() as AiDraftOutput) : next
     return { output, model: this.model, servedByModel: this.model, promptVersion: PROMPT_VERSION, inputTokens: 1000, outputTokens: 500 }
+  }
+
+  async transcribe(request: TranscribeRequest): Promise<TranscribeResponse> {
+    this.transcriptions.push(request)
+    const next = this.nextTranscription
+    if (next instanceof AiError) throw next
+    if (next === null) throw new AiError('unknown', 'No scripted transcription')
+    return { output: next, model: this.model, servedByModel: this.model, promptVersion: TRANSCRIBE_PROMPT_VERSION, inputTokens: 2000, outputTokens: 800 }
   }
 }
 
