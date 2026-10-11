@@ -209,7 +209,7 @@ your recipe and choose that template. New pages are built from the same blocks:
 - the first big heading becomes the page name;
 - each infobox row is filled from the field with the same name or alias (“Armour Class” → Armor
   Class, “Strength” → STR, “Immunities” → damage and condition immunities, …); rows the
-  source has no value for stay empty;
+  source has no value for are left out (and a group with no values at all is left out);
 - each titled text block (“Traits”, “Actions”, …) gets the section with the same heading, and
   is left out when the source has none; extra sections (e.g. “Reactions”) become new text
   blocks in the same style;
@@ -322,7 +322,7 @@ LKC_PROBE=1 npx tsx scripts/probe-legendkeeper.ts   # report in data/probe-repor
 
 ## Known limitations
 
-- **Templates**: the API has no “create from template” operation and does not document templates. The app copies a template's *layout* (read with the normal read operations) and fills it; the new page is not linked to the template in LegendKeeper. Empty image slots and the app-only TAGS box cannot be written, so they are left out. Copying works for the built-in page types.
+- **Templates**: the API has no “create from template” operation and does not document templates. The app copies a template's *layout* (read with the normal read operations) and fills it; the new page is not linked to the template in LegendKeeper. Empty image slots and LegendKeeper's built-in Tags and Aliases boxes cannot be created through the API (it answers `UNSUPPORTED_KIND`, as documented), so they are left out; the page's tags and aliases are still saved, and you can add those boxes in LegendKeeper. Copying works for the built-in page types.
 - **Filtering**: the API cannot filter resources by name or tag, so browsing relies on the local index, which is as fresh as the last scan.
 - **Tag list** needs an ADMIN key; otherwise tags are counted from the index.
 - **Backlinks/relationships**: no API endpoint lists them; Phase 1 resolves links only for new drafts.

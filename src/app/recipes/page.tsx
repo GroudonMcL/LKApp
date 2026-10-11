@@ -417,7 +417,7 @@ function LayoutDetails({ report, blocks }: { report: LayoutReport; blocks: unkno
       <ul>
         {report.rows.map((row, i) => (
           <li key={i}>
-            {row.key || '(no label)'} → {row.fields.length ? row.fields.join(' + ') : <span className="muted">no matching field (stays empty)</span>}
+            {row.key || '(no label)'} → {row.fields.length ? row.fields.join(' + ') : <span className="muted">no matching field (left out)</span>}
           </li>
         ))}
       </ul>
@@ -427,12 +427,13 @@ function LayoutDetails({ report, blocks }: { report: LayoutReport; blocks: unkno
         {report.hasDescriptionArea
           ? 'The description and other lore go where the template has its placeholder text.'
           : 'The template has no placeholder text, so the description and other lore go at the end.'}{' '}
-        Sections without a matching text block are added as new text blocks. Fields without a row ({report.fieldsWithoutRow.join(', ') || 'none'}) are added to the first or last group
+        Rows the source has no value for are left out. Sections without a matching text block are added as new text blocks. Fields without a row ({report.fieldsWithoutRow.join(', ') || 'none'}) are added to the first or last group
         when the source has them. Template text itself is never copied.
       </p>
       {report.droppedParts.length > 0 && (
         <p className="small">
-          Not copied (the API cannot write these; LegendKeeper adds its own): {report.droppedParts.join(', ')}.
+          Not copied: {report.droppedParts.join(', ')}. LegendKeeper’s API refuses to create its built-in Tags and Aliases boxes, so add those to the page in LegendKeeper if you
+          want them. The page’s tags and aliases themselves are still saved.
         </p>
       )}
       <button type="button" className="link-button" onClick={() => setShowPreview(!showPreview)}>

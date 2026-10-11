@@ -95,8 +95,10 @@ describe('layouts copied from LegendKeeper', () => {
       Skills: 'Stealth +6',
       Senses: 'Darkvision 60 ft.; Passive Perception 9',
       Languages: 'Common, Goblin',
-      Resistances: '',
     })
+    // Rows the source has nothing for are left out.
+    expect(rows).not.toHaveProperty('Resistances')
+    expect(rows).not.toHaveProperty('Immunities')
     // Fields without a row of their own: type line first, the rest last.
     const keys = Object.keys(rows)
     expect(keys.slice(0, 3)).toEqual(['Size', 'Creature type', 'Alignment'])
@@ -143,7 +145,7 @@ describe('layouts copied from LegendKeeper', () => {
     const ac = page.fields.find((field) => field.key === 'armorClass')!
     ac.status = 'uncertain'
     const rows = rowsOf(renderPageBlocks(page, { pageType: creature, template: template() }))
-    expect(rows['Armour Class']).toBe('')
+    expect(rows).not.toHaveProperty('Armour Class')
   })
 
   it('adds a Sources section only when the template asks for it', () => {

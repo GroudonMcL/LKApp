@@ -9,7 +9,7 @@ import { inlineRuns, mentionTargets, paragraphBlocks, sourcesBlocks } from './re
  *
  * The same rules as the app's own renderer apply: only confirmed values (`source` or `user`)
  * are written, only resolved references become links, and mechanics stay apart from lore.
- * Template text is never copied into the page: rows without a value stay empty, text blocks
+ * Template text is never copied into the page: rows without a value are left out, text blocks
  * without a matching section are left out, and placeholder paragraphs are replaced.
  *
  * Pure: no network, no database.
@@ -94,7 +94,9 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
         })
         if (block === firstGroup) rows.unshift(...extraRows(extraBefore))
         if (block === lastGroup) rows.push(...extraRows(extraAfter))
-        return { ...block, rows }
+        // Rows with nothing to show are left out, and a group with no rows at all goes too.
+        const filled = rows.filter((row) => row.content.length > 0)
+        return filled.length ? { ...block, rows: filled } : null
       }
       case 'heading':
         if (!nameWritten && block.level === 1) {
