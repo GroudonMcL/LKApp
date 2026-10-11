@@ -8,6 +8,7 @@ import type { draftView } from '@/server/services/drafts'
 import type { prepareWrite, approveWrite, Blocker } from '@/server/services/write'
 import type { TagOverview } from '@/server/services/tags'
 import type { batchView, listBatches } from '@/server/services/import-batches'
+import type { healthDashboard, listFindings } from '@/server/services/wiki-health'
 import type { layoutReport, LkTemplateListing } from '@/server/services/lk-templates'
 import type { PageTemplate } from '@/core/template'
 import type { AuditEvent, ImportJob } from '@/server/db/repositories'
@@ -19,6 +20,8 @@ export type ScanStatus = ReturnType<typeof scanStatus>
 export type BatchView = ReturnType<typeof batchView>
 export type BatchItemRow = BatchView['items'][number]
 export type BatchListing = ReturnType<typeof listBatches>
+export type HealthDashboard = ReturnType<typeof healthDashboard>
+export type FindingRow = ReturnType<typeof listFindings>['items'][number]
 export type { LkTemplateListing }
 export type LayoutReport = NonNullable<ReturnType<typeof layoutReport>>
 export type TemplateWithReport = PageTemplate & { layoutReport: LayoutReport | null }

@@ -212,3 +212,6 @@ summary { cursor: pointer; color: var(--accent); }
 .error-text { color: var(--bad); }
 .source-text { max-height: 24rem; overflow: auto; white-space: pre-wrap; font-size: 0.8rem; background: var(--surface-2); padding: 0.5rem; border-radius: 6px; }
 .toolbar { flex-wrap: wrap; margin: 0.5rem 0; }
+.stat-button { text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.stat-button:hover { border-color: var(--accent); }
+.stat-active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }

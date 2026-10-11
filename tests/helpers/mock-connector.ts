@@ -42,6 +42,8 @@ export class MockConnector implements LegendKeeperConnector {
   createBehavior: CreateBehavior = 'ok'
   /** Per page name, overrides `createBehavior` (to fail one record of a batch). */
   createBehaviorByName = new Map<string, CreateBehavior>()
+  /** Pages whose content cannot be read. */
+  failDocuments = new Set<string>()
   failReads: ConnectorError | null = null
   pageSize: number | null = null
   calls: { method: string; args: unknown }[] = []
@@ -115,6 +117,7 @@ export class MockConnector implements LegendKeeperConnector {
 
   async getDocumentContent(resourceId: string, documentId: string): Promise<DocumentContent> {
     this.record('getDocumentContent', { resourceId, documentId })
+    if (this.failDocuments.has(resourceId)) throw new ConnectorError('validation', 'the document could not be converted', { status: 422, code: 'UNPROCESSABLE', outcome: 'not_applied' })
     const doc = this.resources.get(resourceId)?.documents.find((d) => d.id === documentId)
     if (!doc) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
     return { resourceId, documentId, version: doc.version, text: doc.text, blocks: doc.blocks, unsupportedCount: 0 }

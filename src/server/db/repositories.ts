@@ -7,6 +7,7 @@ import { TemplateDefinition, type PageTemplate, type TemplateOrigin } from '@/co
 import type { PageTypeGuess } from '@/core/extraction'
 import type { IndexedResource } from '@/core/references'
 import { AiCacheRepo, BatchesRepo, BatchItemsRepo, BatchSourcesRepo } from './batch-repositories'
+import { AuditRunsRepo, ContentCacheRepo, FindingsRepo } from './health-repositories'
 
 const now = () => new Date().toISOString()
 const json = (value: unknown) => JSON.stringify(value)
@@ -580,7 +581,8 @@ export class IndexRepo {
       clauses.push('EXISTS (SELECT 1 FROM json_each(tags) WHERE value = @tag)')
       params.tag = filter.tag
     }
-    if (filter.untagged) clauses.push('tag_count = 0')
+    // LegendKeeper templates are listed under the parent "templates"; they are not pages to tag.
+    if (filter.untagged) clauses.push(`tag_count = 0 AND (parent_id IS NULL OR parent_id != '${LK_TEMPLATES_PARENT_ID}')`)
     if (filter.parentId !== undefined) {
       if (filter.parentId === null) clauses.push('parent_id IS NULL')
       else {
@@ -605,16 +607,33 @@ export class IndexRepo {
 
   stats(projectId: string) {
     const counts = this.db
-      .prepare('SELECT COUNT(*) AS total, SUM(CASE WHEN tag_count = 0 THEN 1 ELSE 0 END) AS untagged FROM lk_index_resources WHERE project_id = ?')
-      .get(projectId) as { total: number; untagged: number | null }
+      .prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN parent_id IS NULL OR parent_id != '${LK_TEMPLATES_PARENT_ID}' THEN 1 ELSE 0 END) AS pages, SUM(CASE WHEN tag_count = 0 AND (parent_id IS NULL OR parent_id != '${LK_TEMPLATES_PARENT_ID}') THEN 1 ELSE 0 END) AS untagged FROM lk_index_resources WHERE project_id = ?`)
+      .get(projectId) as { total: number; pages: number | null; untagged: number | null }
     const tags = (this.db.prepare('SELECT COUNT(DISTINCT value) AS n FROM lk_index_resources, json_each(tags) WHERE project_id = ?').get(projectId) as { n: number }).n
-    return { total: counts.total, untagged: counts.untagged ?? 0, distinctTags: tags }
+    return { total: counts.total, pages: counts.pages ?? 0, untagged: counts.untagged ?? 0, distinctTags: tags }
   }
 
   tagCounts(projectId: string): { tag: string; count: number }[] {
     return this.db
-      .prepare('SELECT value AS tag, COUNT(*) AS count FROM lk_index_resources, json_each(tags) WHERE project_id = ? GROUP BY value ORDER BY count DESC, value')
+      .prepare(`SELECT value AS tag, COUNT(*) AS count FROM lk_index_resources, json_each(tags) WHERE project_id = ? AND (parent_id IS NULL OR parent_id != '${LK_TEMPLATES_PARENT_ID}') GROUP BY value ORDER BY count DESC, value`)
       .all(projectId) as { tag: string; count: number }[]
+  }
+
+  /** Every indexed page (templates excluded) with its path, tags, documents and last update, for Wiki Health. */
+  forAudit(projectId: string): (IndexedResourceRow & { path: string | null })[] {
+    const rows = (this.db.prepare('SELECT * FROM lk_index_resources WHERE project_id = ?').all(projectId) as IndexRow[]).map(toIndexed)
+    const byId = new Map(rows.map((row) => [row.id, row]))
+    const pathOf = (row: IndexedResourceRow): string | null => {
+      const names: string[] = []
+      let parent = row.parentId ? byId.get(row.parentId) : undefined
+      let guard = 0
+      while (parent && guard++ < 50) {
+        names.unshift(parent.name)
+        parent = parent.parentId ? byId.get(parent.parentId) : undefined
+      }
+      return names.length ? names.join(' / ') : null
+    }
+    return rows.filter((row) => row.parentId !== LK_TEMPLATES_PARENT_ID).map((row) => ({ ...row, path: pathOf(row) }))
   }
 
   /** Every indexed resource with a readable path, for reference resolution. */
@@ -719,6 +738,9 @@ export interface Repos {
   batchSources: BatchSourcesRepo
   batchItems: BatchItemsRepo
   aiCache: AiCacheRepo
+  auditRuns: AuditRunsRepo
+  findings: FindingsRepo
+  contentCache: ContentCacheRepo
 }
 
 export function createRepos(db: Db): Repos {
@@ -735,5 +757,8 @@ export function createRepos(db: Db): Repos {
     batchSources: new BatchSourcesRepo(db),
     batchItems: new BatchItemsRepo(db),
     aiCache: new AiCacheRepo(db),
+    auditRuns: new AuditRunsRepo(db),
+    findings: new FindingsRepo(db),
+    contentCache: new ContentCacheRepo(db),
   }
 }

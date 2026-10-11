@@ -80,8 +80,9 @@ function createProductionContext(): AppContext {
   const interruptedScans = repos.index.markRunningInterrupted()
   const interruptedBatches = repos.batches.markInterrupted()
   const interruptedItems = repos.batchItems.markInterrupted()
-  if (interruptedJobs || interruptedWrites || interruptedScans || interruptedBatches || interruptedItems.processing || interruptedItems.running) {
-    log.warn('Recovered from an interrupted run', { interruptedJobs, interruptedWrites, interruptedScans, interruptedBatches, interruptedItems })
+  const interruptedAudits = repos.auditRuns.markInterrupted()
+  if (interruptedJobs || interruptedWrites || interruptedScans || interruptedBatches || interruptedItems.processing || interruptedItems.running || interruptedAudits) {
+    log.warn('Recovered from an interrupted run', { interruptedJobs, interruptedWrites, interruptedScans, interruptedBatches, interruptedItems, interruptedAudits })
   }
   const aiPreference = repos.settings.get<boolean>('ai.enabled')
   if (aiPreference === false) runtimeState().aiEnabled = false

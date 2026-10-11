@@ -105,6 +105,7 @@ export function clearIndex(ctx: AppContext) {
   if (!projectId) return
   if (control().running) throw new Error('A scan is running. Pause it before clearing the index.')
   ctx.repos.index.clear(projectId)
+  ctx.repos.contentCache.clear(projectId)
   recordAudit(ctx, { operation: 'index.clear', outcome: 'success', projectId })
 }
 

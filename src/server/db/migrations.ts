@@ -282,6 +282,72 @@ CREATE TABLE ai_cache (
 );
 `,
   },
+  {
+    version: 3,
+    name: 'wiki health: audit runs, findings and a page-content cache',
+    sql: `
+-- One audit run: its scope, progress and outcome. Audits only read from LegendKeeper.
+CREATE TABLE audit_runs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  checks TEXT NOT NULL,
+  total INTEGER NOT NULL DEFAULT 0,
+  processed INTEGER NOT NULL DEFAULT 0,
+  fetched INTEGER NOT NULL DEFAULT 0,
+  reused INTEGER NOT NULL DEFAULT 0,
+  summary TEXT NOT NULL DEFAULT '{}',
+  error TEXT,
+  cancel_requested INTEGER NOT NULL DEFAULT 0,
+  started_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  finished_at TEXT
+);
+
+-- Findings persist across runs. key identifies the same finding in later runs.
+CREATE TABLE audit_findings (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  category TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  certainty TEXT NOT NULL,
+  resource_id TEXT,
+  resource_name TEXT,
+  related TEXT NOT NULL DEFAULT '[]',
+  title TEXT NOT NULL,
+  explanation TEXT NOT NULL,
+  evidence TEXT NOT NULL DEFAULT '{}',
+  remedy TEXT NOT NULL,
+  needs_review INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL,
+  status_note TEXT,
+  fingerprint TEXT,
+  status_fingerprint TEXT,
+  run_id TEXT,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  status_changed_at TEXT,
+  UNIQUE (project_id, key)
+);
+CREATE INDEX audit_findings_category ON audit_findings(project_id, category, status);
+CREATE INDEX audit_findings_resource ON audit_findings(project_id, resource_id);
+
+-- What the audit last read of a page: its document version (the fingerprint) and a
+-- structural summary. No full copy of the page is kept beyond a short text sample.
+CREATE TABLE lk_content_cache (
+  project_id TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  document_id TEXT NOT NULL,
+  version TEXT NOT NULL,
+  structure TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  error TEXT,
+  PRIMARY KEY (project_id, resource_id)
+);
+`,
+  },
 ]
 
 /** Applies pending migrations in order, each in its own transaction. Returns the versions applied. */

@@ -37,7 +37,7 @@ describe('read-only discovery', () => {
     const scan = await startOrResumeScan(ctx, { wait: true, delayMs: 0 })
     const status = scanStatus(ctx)
     expect(status.latest).toMatchObject({ id: scan.id, status: 'completed', pages: 3, resources: 25 })
-    expect(status.stats).toEqual({ total: 25, untagged: 9, distinctTags: 2 })
+    expect(status.stats).toEqual({ total: 25, pages: 25, untagged: 9, distinctTags: 2 })
   })
 
   it('resumes a failed scan from its saved cursor', async () => {
@@ -75,7 +75,7 @@ describe('read-only discovery', () => {
   it('clears the index on request', async () => {
     await startOrResumeScan(ctx, { wait: true, delayMs: 0 })
     clearIndex(ctx)
-    expect(scanStatus(ctx).stats).toEqual({ total: 0, untagged: 0, distinctTags: 0 })
+    expect(scanStatus(ctx).stats).toEqual({ total: 0, pages: 0, untagged: 0, distinctTags: 0 })
   })
 })
 

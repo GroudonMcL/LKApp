@@ -10,6 +10,7 @@ const LINKS = [
   { href: '/import', label: 'Import studio' },
   { href: '/batches', label: 'Batch jobs' },
   { href: '/recipes', label: 'Recipes & templates' },
+  { href: '/health', label: 'Wiki Health' },
   { href: '/tags', label: 'Tag audit' },
   { href: '/history', label: 'History & audit' },
   { href: '/settings', label: 'Settings' },
