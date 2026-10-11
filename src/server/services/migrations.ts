@@ -19,7 +19,7 @@ import { renderPageBlocks } from '../lk/render'
 import { paragraphBlocks } from '../lk/render-text'
 import { redactSecrets } from '../redact'
 import { recordAudit } from './audit'
-import { BATCH_TIMING, cancelRequested, runningPhase, sleep, startBatchWork } from './batch-engine'
+import { BATCH_TIMING, cancelRequested, noteModel, runningPhase, sleep, startBatchWork } from './batch-engine'
 import { knownProjectId, requireProjectId } from './connection'
 import { validateWithRender } from './drafts'
 import { ServiceError } from './errors'
@@ -181,7 +181,7 @@ export async function analyseMigration(ctx: AppContext, batchId: string, input: 
   const options = optionsOf(batch)
   if (options.mode === 'ai') {
     try {
-      ctx.ai()
+      noteModel(ctx, batchId, ctx.ai().model)
     } catch (error) {
       throw new ServiceError(400, (error as Error).message)
     }
@@ -583,6 +583,7 @@ export async function dryRunMigration(ctx: AppContext, batchId: string, input: {
       if (cancelRequested(ctx, batchId)) break
       const plan = planOf(item)!
       const problems: string[] = []
+      if (!ctx.config().lk.allowWrites) problems.push('Writes are switched off (LKC_ALLOW_WRITES=false), so nothing could be written.')
       try {
         const current = await ctx.connector().getDocumentContent(plan.resourceId, plan.documentId)
         if (current.version !== plan.sourceVersion) problems.push('The page changed in LegendKeeper after the analysis. It would not be written; analyse it again.')

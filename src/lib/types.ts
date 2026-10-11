@@ -10,6 +10,7 @@ import type { TagOverview } from '@/server/services/tags'
 import type { batchView, listBatches } from '@/server/services/import-batches'
 import type { healthDashboard, listFindings } from '@/server/services/wiki-health'
 import type { taggingView } from '@/server/services/tagging-batches'
+import type { reviewQueue } from '@/server/services/review-queue'
 import type { migrationItem, migrationView, MigrationPlan } from '@/server/services/migrations'
 import type { layoutReport, LkTemplateListing } from '@/server/services/lk-templates'
 import type { PageTemplate } from '@/core/template'
@@ -25,6 +26,7 @@ export type BatchListing = ReturnType<typeof listBatches>
 export type HealthDashboard = ReturnType<typeof healthDashboard>
 export type TaggingView = ReturnType<typeof taggingView>
 export type TaggingItem = TaggingView['items'][number]
+export type ReviewQueue = ReturnType<typeof reviewQueue>
 export type MigrationView = ReturnType<typeof migrationView>
 export type MigrationRow = MigrationView['items'][number]
 export type MigrationDetail = ReturnType<typeof migrationItem>
@@ -46,6 +48,7 @@ export interface StatusResponse {
   imports: Record<string, number>
   pagesCreated: number
   recipes: number
+  review: { total: number; high: number; medium: number; low: number }
   writeBlockers: Blocker[]
   recentActivity: AuditEvent[]
 }

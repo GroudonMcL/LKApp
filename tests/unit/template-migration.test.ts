@@ -20,6 +20,7 @@ import {
   retryMigration,
   runMigration,
 } from '@/server/services/migrations'
+import { reviewQueue } from '@/server/services/review-queue'
 import { draftBlockers } from '@/server/services/write'
 import { createTestContext } from '../helpers/test-context'
 
@@ -187,6 +188,8 @@ describe('template migration jobs', () => {
     expect(fresh.fields.find((f) => f.oldKey === 'Hit Points')).toMatchObject({ change: 'changed', oldValue: '135 (18d10+36)', newValue: '136 (18d10+36)' })
     expect(fresh.unmapped.map((u) => u.text)).toContain('Hit Points: 135 (18d10+36)')
     expect(textOf(fresh.proposedBlocks)).toContain('Hit Points: 135 (18d10+36)')
+    // It is in the central review queue as a high-priority mechanics change.
+    expect(reviewQueue(ctx).items[0]).toMatchObject({ type: 'migration_mechanics', severity: 'high', resourceId: 'abo00001' })
     approveMigration(ctx, batchId, { itemIds: [item.id], acknowledged: { [item.id]: fresh.acknowledgements.map((a) => a.id).filter((id) => id !== 'added:136:1') } })
     expect(migrationView(ctx, batchId).items[0]).toMatchObject({ status: 'awaiting_review', error: expect.stringMatching(/Tick every change/) })
     approveMigration(ctx, batchId, { itemIds: [item.id], acknowledged: { [item.id]: fresh.acknowledgements.map((a) => a.id) } })

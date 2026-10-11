@@ -19,7 +19,7 @@ import { toConnectorError } from '../lk/errors'
 import { redactSecrets } from '../redact'
 import { configuredSecrets } from '../config'
 import { recordAudit } from './audit'
-import { BATCH_TIMING, cancelRequested, forEachLimited, runningPhase, sleep, startBatchWork } from './batch-engine'
+import { BATCH_TIMING, cancelRequested, forEachLimited, noteModel, runningPhase, sleep, startBatchWork } from './batch-engine'
 import { knownProjectId, requireProjectId } from './connection'
 import { getDraft } from './drafts'
 import { ServiceError } from './errors'
@@ -263,6 +263,7 @@ export async function transcribeSource(ctx: AppContext, batchId: string, sourceI
   } catch (error) {
     throw new ServiceError(400, (error as Error).message, [], error instanceof AiError ? error.kind : null)
   }
+  noteModel(ctx, batchId, provider.model)
   let response
   try {
     response = await provider.transcribe({ kind, mediaType: source.mediaType ?? (kind === 'pdf' ? 'application/pdf' : 'image/png'), base64: Buffer.from(blob).toString('base64'), name: source.fileName ?? source.title ?? 'file' })
@@ -480,7 +481,7 @@ export async function generateDrafts(ctx: AppContext, batchId: string, options: 
   let deferred = 0
   if (options.mode === 'ai') {
     try {
-      ctx.ai()
+      noteModel(ctx, batchId, ctx.ai().model)
     } catch (error) {
       throw new ServiceError(400, (error as Error).message)
     }
@@ -1028,13 +1029,74 @@ export function batchView(ctx: AppContext, batchId: string) {
   }
 }
 
+/** The end-of-job summary: what was processed, what worked, what is left. */
+export function jobSummary(counts: Record<BatchItemStatus, number>) {
+  const total = Object.values(counts).reduce((a, b) => a + b, 0)
+  return {
+    total,
+    succeeded: counts.succeeded,
+    failed: counts.failed + counts.needs_reconciliation,
+    skipped: counts.skipped + counts.cancelled,
+    needsReview: counts.awaiting_review + counts.needs_reconciliation,
+    remaining: counts.pending + counts.processing + counts.awaiting_review + counts.approved + counts.running,
+  }
+}
+
 export function listBatches(ctx: AppContext, kind: 'import' | 'tagging' | 'migration' | null, page = 1, pageSize = 25) {
   const size = Math.min(Math.max(pageSize, 1), 100)
   const result = ctx.repos.batches.list(kind, size, (Math.max(page, 1) - 1) * size)
   return {
     total: result.total,
-    items: result.items.map((batch) => ({ ...batch, options: undefined, phase: runningPhase(batch.id), counts: ctx.repos.batchItems.counts(batch.id), files: ctx.repos.batchSources.list(batch.id).length })),
+    items: result.items.map((batch) => {
+      const counts = ctx.repos.batchItems.counts(batch.id)
+      const recipe = batch.recipeId ? ctx.repos.recipes.get(batch.recipeId) : null
+      return {
+        ...batch,
+        options: undefined,
+        phase: runningPhase(batch.id),
+        counts,
+        summary: jobSummary(counts),
+        recipeName: recipe?.definition.name ?? null,
+        models: (batch.options as { models?: string[] }).models ?? [],
+        files: ctx.repos.batchSources.list(batch.id).length,
+      }
+    }),
   }
+}
+
+/** One row per job (all kinds): the operation history as CSV or JSON. Contains no credentials. */
+export function exportHistory(ctx: AppContext, format: 'json' | 'csv') {
+  const rows: ExportRow[] = []
+  for (let page = 1; ; page++) {
+    const { items } = listBatches(ctx, null, page, 100)
+    for (const b of items) {
+      rows.push({
+        job_id: b.id,
+        kind: b.kind,
+        name: b.name,
+        status: b.status,
+        recipe: b.recipeName,
+        recipe_version: b.recipeVersion,
+        ai_models: b.models.join('; '),
+        created: b.createdAt,
+        started: b.startedAt,
+        finished: b.finishedAt,
+        items: b.summary.total,
+        succeeded: b.summary.succeeded,
+        failed_or_unresolved: b.summary.failed,
+        skipped: b.summary.skipped,
+        needs_review: b.summary.needsReview,
+        remaining: b.summary.remaining,
+        error: b.error,
+      })
+    }
+    if (items.length < 100) break
+  }
+  const secrets = configuredSecrets()
+  const stamp = ctx.now().toISOString().slice(0, 10)
+  return format === 'json'
+    ? { fileName: `lk-companion-jobs-${stamp}.json`, contentType: 'application/json', body: JSON.stringify(redactSecrets(rows, secrets), null, 2) }
+    : { fileName: `lk-companion-jobs-${stamp}.csv`, contentType: 'text/csv', body: toCsv(redactSecrets(rows, secrets) as ExportRow[]) }
 }
 
 type ExportRow = Record<string, string | number | null>

@@ -87,6 +87,7 @@ function Dashboard({ data }: { data: StatusResponse }) {
         <Stat label="Open imports" value={openImports} hint={<Link href="/import">Import studio</Link>} />
         <Stat label="Pages created by this app" value={data.pagesCreated} />
         <Stat label="Saved recipes" value={data.recipes} hint={<Link href="/recipes">Recipes</Link>} />
+        <Stat label="Waiting for your review" value={data.review.total} hint={<Link href="/review">{data.review.high ? `${data.review.high} high priority` : 'Review queue'}</Link>} />
       </div>
 
       <div className="grid grid-2">

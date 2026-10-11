@@ -327,6 +327,13 @@ export class DraftsRepo {
     const row = this.db.prepare('SELECT * FROM drafts WHERE job_id = ?').get(jobId) as DraftRow | undefined
     return row ? toDraft(row) : null
   }
+  listByStatus(statuses: DraftStatus[], limit = 500): Draft[] {
+    if (statuses.length === 0) return []
+    const rows = this.db
+      .prepare(`SELECT * FROM drafts WHERE status IN (${statuses.map(() => '?').join(', ')}) ORDER BY updated_at DESC LIMIT ?`)
+      .all(...statuses, limit) as DraftRow[]
+    return rows.map(toDraft)
+  }
   /** Creates the job's draft, or replaces its content (keeping the old content as a revision). */
   upsertContent(input: { id: string; jobId: string; page: CanonicalPage; findings: ValidationFinding[]; recipeId: string | null; recipeVersion: number | null; reason: string }): Draft {
     const at = now()

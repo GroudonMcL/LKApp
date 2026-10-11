@@ -1,6 +1,7 @@
 import { handle } from '@/server/http'
 import { connectionSummary, ensureConnectionChecked } from '@/server/services/connection'
 import { scanStatus } from '@/server/services/discovery'
+import { reviewCounts } from '@/server/services/review-queue'
 import { configBlockers } from '@/server/services/write'
 
 export const runtime = 'nodejs'
@@ -19,6 +20,7 @@ export async function GET() {
       imports: ctx.repos.jobs.countByStatus(),
       pagesCreated: ctx.repos.drafts.countCreated(),
       recipes: ctx.repos.recipes.count(),
+      review: reviewCounts(ctx),
       writeBlockers: configBlockers(ctx),
       recentActivity: ctx.repos.audit.list({ limit: 8 }),
     }

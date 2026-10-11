@@ -85,6 +85,15 @@ export function startBatchWork(
   return options.wait ? promise : Promise.resolve()
 }
 
+/** Records which AI model a batch used (shown in the job history). */
+export function noteModel(ctx: AppContext, batchId: string, model: string) {
+  const batch = ctx.repos.batches.get(batchId)
+  if (!batch) return
+  const models = ((batch.options as { models?: string[] }).models ?? []).filter(Boolean)
+  if (models.includes(model)) return
+  ctx.repos.batches.update(batchId, { options: { ...batch.options, models: [...models, model] } })
+}
+
 /** True when the user asked to stop this batch; checked between items. */
 export function cancelRequested(ctx: AppContext, batchId: string): boolean {
   return ctx.repos.batches.get(batchId)?.cancelRequested === true

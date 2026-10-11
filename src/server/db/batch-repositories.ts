@@ -327,6 +327,17 @@ export class BatchItemsRepo {
     const row = this.db.prepare('SELECT * FROM batch_items WHERE job_id = ?').get(jobId) as ItemRow | undefined
     return row ? toItem(row) : null
   }
+  /** Items of open batches that need you (for the review queue), newest first. */
+  listNeedingAttention(limit = 2000): (BatchItem & { batchKind: BatchKind; batchName: string })[] {
+    const rows = this.db
+      .prepare(
+        `SELECT i.*, b.kind AS batch_kind, b.name AS batch_name FROM batch_items i JOIN batches b ON b.id = i.batch_id
+         WHERE b.status NOT IN ('completed', 'cancelled') AND i.status IN ('awaiting_review', 'failed', 'needs_reconciliation')
+         ORDER BY i.updated_at DESC LIMIT ?`,
+      )
+      .all(limit) as (ItemRow & { batch_kind: BatchKind; batch_name: string })[]
+    return rows.map((row) => ({ ...toItem(row), batchKind: row.batch_kind, batchName: row.batch_name }))
+  }
   list(batchId: string, filter: { status?: BatchItemStatus[]; limit?: number; offset?: number } = {}): BatchItem[] {
     const statuses = filter.status ?? []
     const where = statuses.length ? `AND status IN (${statuses.map(() => '?').join(', ')})` : ''

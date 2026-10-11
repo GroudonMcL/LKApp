@@ -16,7 +16,7 @@ import { toConnectorError } from '../lk/errors'
 import { pageStructure } from '../lk/structure'
 import { redactSecrets } from '../redact'
 import { recordAudit } from './audit'
-import { BATCH_TIMING, cancelRequested, runningPhase, sleep, startBatchWork } from './batch-engine'
+import { BATCH_TIMING, cancelRequested, noteModel, runningPhase, sleep, startBatchWork } from './batch-engine'
 import { knownProjectId, requireProjectId } from './connection'
 import { ServiceError } from './errors'
 import { toCsv } from './import-batches'
@@ -109,7 +109,7 @@ export async function suggestTagging(ctx: AppContext, batchId: string, input: { 
   const config = taxonomyOf(batch)
   if (config.useAi) {
     try {
-      ctx.ai()
+      noteModel(ctx, batchId, ctx.ai().model)
     } catch (error) {
       throw new ServiceError(400, `${(error as Error).message} (AI tag suggestions are switched on in the tagging settings.)`)
     }
@@ -280,6 +280,7 @@ export async function dryRunTagging(ctx: AppContext, batchId: string, input: { w
       const plan = planOf(item)
       const proposed = plan.after ?? applyTagChanges(plan.before, plan.suggestions)
       const problems: string[] = []
+      if (!ctx.config().lk.allowWrites) problems.push('Writes are switched off (LKC_ALLOW_WRITES=false), so nothing could be written.')
       let current: string[] | null = null
       try {
         current = (await ctx.connector().getResource(item.resourceId!)).tags
