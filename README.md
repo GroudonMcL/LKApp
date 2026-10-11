@@ -46,7 +46,9 @@ offers, what the SDK supports, what this app uses, and how each part was verifie
 
 ## Prerequisites
 
-- **Node.js 22.12 or newer** (22 LTS or 24 LTS). Check with `node --version`. Download from <https://nodejs.org>.
+- **Node.js 22.13 or newer** (22 LTS or 24 LTS). Check with `node --version`. Download from <https://nodejs.org>.
+  No compilers or Windows build tools are needed: the database is Node's built-in SQLite. On Node 22 you may see a one-line
+  “SQLite is an experimental feature” warning when the app starts; it is harmless.
 - **A LegendKeeper API key.** The project owner must be on a **paid plan** (a trial does not count).
 - **Optional: an Anthropic API key** for AI transformations (<https://console.anthropic.com>). Without it, everything except AI transformation works.
 
@@ -186,7 +188,7 @@ Browser (React pages)  ──fetch──▶  /api/* route handlers  (thin: valid
 - **`src/server/lk/`** — the only code that talks to LegendKeeper. `connector.ts` is the interface the rest of the app depends on; `sdk-connector.ts` implements it with the official SDK; `render.ts` turns a canonical draft into LegendKeeper blocks using the SDK's builders; `errors.ts` maps SDK errors to plain-English messages. Phase 1's interface has exactly one write (`createPage`).
 - **`src/server/ai/`** — the AI provider interface, the Claude implementation (structured outputs, validated again in code), and the version-controlled prompt (`prompts/transform.ts`, with `PROMPT_VERSION`).
 - **`src/server/services/`** — connection, discovery (scan/browse), tags, recipes/templates, imports, transform, drafts, write, settings, audit.
-- **`src/server/db/`** — SQLite (via `better-sqlite3`) with versioned migrations and repositories.
+- **`src/server/db/`** — SQLite using Node's built-in `node:sqlite` module (no native add-on to install), with versioned migrations and repositories.
 - **`src/app/`** — Next.js pages and `/api` routes. `src/proxy.ts` refuses non-localhost requests and cross-site writes.
 
 The UI never imports the SDK; all LegendKeeper and AI calls happen on the server.
@@ -318,6 +320,8 @@ LKC_PROBE=1 npx tsx scripts/probe-legendkeeper.ts   # report in data/probe-repor
 | *No Anthropic API key is configured* | Add `ANTHROPIC_API_KEY`, or use *Run structural (no AI)*. |
 | A request ID is shown | Quote it to LegendKeeper support; it identifies their server log entry. |
 | Database problems | Stop the app and delete `data/` to start fresh (your LegendKeeper project is not affected). |
+| `npm ci` fails while compiling something (`node-gyp`, `MSBuild`, Windows SDK) | You have an older copy of the project that used a compiled database add-on. Download the latest version; it needs no build tools. |
+| *Next.js is not installed in this folder* | Run `npm ci` in the folder that contains `package.json` and wait until it finishes. |
 
 ## Project layout
 
