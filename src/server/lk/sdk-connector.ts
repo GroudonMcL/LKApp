@@ -144,6 +144,20 @@ export class SdkConnector implements LegendKeeperConnector {
       }
     })
   }
+
+  async updateResourceTags(resourceId: string, tags: string[]): Promise<{ tags: string[]; updatedAt: string | null }> {
+    return this.call(async () => {
+      const updated = await this.writer.resources.update({ resourceId }, { tags })
+      return { tags: updated.tags, updatedAt: updated.updatedAt ?? null }
+    })
+  }
+
+  async replaceDocumentBlocks(resourceId: string, documentId: string, blocks: unknown[], ifMatch: string): Promise<{ version: string }> {
+    return this.call(async () => {
+      const written = await this.writer.documents.replaceBlocks({ resourceId, documentId }, { blocks: blocks as Block[], ifMatch })
+      return { version: written.version }
+    })
+  }
 }
 
 function toProject(project: components['schemas']['Project']): ProjectInfo {

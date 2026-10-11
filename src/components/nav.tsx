@@ -11,6 +11,7 @@ const LINKS = [
   { href: '/batches', label: 'Batch jobs' },
   { href: '/recipes', label: 'Recipes & templates' },
   { href: '/health', label: 'Wiki Health' },
+  { href: '/tagging', label: 'Tagging assistant' },
   { href: '/tags', label: 'Tag audit' },
   { href: '/history', label: 'History & audit' },
   { href: '/settings', label: 'Settings' },

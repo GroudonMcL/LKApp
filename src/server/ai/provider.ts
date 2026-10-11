@@ -3,6 +3,7 @@ import type { PageTypeDefinition } from '@/core/page-types'
 import type { RecipeDefinition } from '@/core/recipe'
 import type { TemplateDefinition } from '@/core/template'
 import type { TranscriptionOutput } from './prompts/transcribe'
+import type { TagPromptInput, TagSuggestionOutput } from './prompts/tags'
 
 /**
  * The AI provider abstraction. The rest of the app asks for a transformation and gets back
@@ -67,10 +68,21 @@ export interface TranscribeResponse {
   outputTokens: number | null
 }
 
+export interface TagSuggestResponse {
+  output: TagSuggestionOutput
+  model: string
+  servedByModel: string
+  promptVersion: string
+  inputTokens: number | null
+  outputTokens: number | null
+}
+
 export interface AiProvider {
   readonly id: string
   readonly model: string
   transform(request: TransformRequest, signal?: AbortSignal): Promise<TransformResponse>
   /** Verbatim transcription of an image or scanned PDF. Only called when the user asks for it. */
   transcribe(request: TranscribeRequest, signal?: AbortSignal): Promise<TranscribeResponse>
+  /** Tag suggestions for one existing page (only when the tagging settings enable AI). */
+  suggestTags(request: TagPromptInput, signal?: AbortSignal): Promise<TagSuggestResponse>
 }

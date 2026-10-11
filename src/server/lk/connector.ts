@@ -14,9 +14,10 @@ import type {
  *
  * - All authenticated LegendKeeper calls go through an implementation of this interface,
  *   on the server only. UI code never sees the SDK or the API key.
- * - Phase 1 is deliberately narrow: read operations, plus exactly one write
- *   (`createPage`). There is no update, move, delete or bulk operation here, so the rest
- *   of the app cannot perform one even by mistake.
+ * - Deliberately narrow: read operations plus three writes — create one page, replace a
+ *   resource's tag list, and replace one page's content (always with a version check).
+ *   There is no move, delete or merge here, so the rest of the app cannot perform one even
+ *   by mistake. Writes are never retried automatically.
  * - Tests use an in-memory implementation; production uses `SdkConnector`.
  */
 export interface LegendKeeperConnector {
@@ -31,4 +32,14 @@ export interface LegendKeeperConnector {
   search(query: string, limit: number): Promise<SearchHit[]>
   /** Creates one resource with one page document. Never retried automatically. */
   createPage(input: CreatePageInput): Promise<CreatedPage>
+  /**
+   * Replaces a resource's tag list (`resources.update` sends only `tags`). LegendKeeper has no
+   * version check for resource updates, so callers read the tags right before and merge.
+   */
+  updateResourceTags(resourceId: string, tags: string[]): Promise<{ tags: string[]; updatedAt: string | null }>
+  /**
+   * Replaces one page document's blocks, only if it is still at `ifMatch` (otherwise
+   * `version_conflict`, nothing written). Returns the new version.
+   */
+  replaceDocumentBlocks(resourceId: string, documentId: string, blocks: unknown[], ifMatch: string): Promise<{ version: string }>
 }

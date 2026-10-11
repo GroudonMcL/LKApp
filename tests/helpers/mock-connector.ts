@@ -19,6 +19,7 @@ import type {
 export interface MockResource {
   id: string
   name: string
+  updatedAt?: string | null
   parentId: string | null
   tags: string[]
   aliases: string[]
@@ -97,7 +98,7 @@ export class MockConnector implements LegendKeeperConnector {
     const slice = all.slice(start, start + size)
     const next = start + size < all.length ? String(start + size) : null
     return {
-      items: slice.map((r) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: r.aliases, iconGlyph: null, isHidden: false, rank: null, updatedAt: null, documents: r.documents.map((d) => ({ id: d.id, name: d.name, type: d.type })) })),
+      items: slice.map((r) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: r.aliases, iconGlyph: null, isHidden: false, rank: null, updatedAt: r.updatedAt ?? null, documents: r.documents.map((d) => ({ id: d.id, name: d.name, type: d.type })) })),
       nextCursor: next,
       hasMore: next !== null,
     }
@@ -109,7 +110,7 @@ export class MockConnector implements LegendKeeperConnector {
     if (!r) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', requestId: 'req_mock_404', outcome: 'not_applied' })
     return {
       id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: r.aliases, iconGlyph: null, isHidden: false, isLocked: false,
-      rank: null, updatedAt: null, createdAt: null,
+      rank: null, updatedAt: r.updatedAt ?? null, createdAt: null,
       documents: r.documents.map((d) => ({ id: d.id, name: d.name, type: d.type, rank: 'a0', isHidden: false })),
       properties: [],
     }
@@ -176,5 +177,39 @@ export class MockConnector implements LegendKeeperConnector {
         apply()
     }
     return { resourceId: input.resourceId, name: input.name, parentId: input.parentId, tags: input.tags, documentId: `doc_${input.resourceId}`, documentType: 'page' }
+  }
+
+  /** Fails tag updates for these resources; `apply_then_connection_error` applies first. */
+  tagUpdateBehavior = new Map<string, CreateBehavior>()
+
+  async updateResourceTags(resourceId: string, tags: string[]): Promise<{ tags: string[]; updatedAt: string | null }> {
+    this.record('updateResourceTags', { resourceId, tags })
+    const r = this.resources.get(resourceId)
+    if (!r) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+    const behavior = this.tagUpdateBehavior.get(resourceId)
+    if (behavior === 'validation_error') throw new ConnectorError('validation', 'invalid', { status: 400, code: 'VALIDATION_ERROR', outcome: 'not_applied' })
+    if (behavior === 'server_error_before_apply') throw new ConnectorError('server', 'server error', { status: 500, outcome: 'unknown' })
+    r.tags = [...tags]
+    r.updatedAt = new Date(Date.now() + this.calls.length).toISOString()
+    if (behavior === 'apply_then_connection_error') throw new ConnectorError('connection', 'reply lost', { outcome: 'unknown' })
+    return { tags: r.tags, updatedAt: r.updatedAt }
+  }
+
+  /** Documents whose replacement should fail as if the reply was lost after applying. */
+  replaceBehavior = new Map<string, CreateBehavior>()
+
+  async replaceDocumentBlocks(resourceId: string, documentId: string, blocks: unknown[], ifMatch: string): Promise<{ version: string }> {
+    this.record('replaceDocumentBlocks', { resourceId, documentId, ifMatch })
+    const doc = this.resources.get(resourceId)?.documents.find((d) => d.id === documentId)
+    if (!doc) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+    if (doc.version !== ifMatch) throw new ConnectorError('version_conflict', 'version mismatch', { status: 412, code: 'VERSION_MISMATCH', outcome: 'not_applied' })
+    const behavior = this.replaceBehavior.get(resourceId)
+    if (behavior === 'validation_error') throw new ConnectorError('validation', 'invalid', { status: 400, code: 'INVALID_CONTENT', outcome: 'not_applied', issues: [{ path: 'blocks[0]', message: 'bad block' }] })
+    if (behavior === 'server_error_before_apply') throw new ConnectorError('server', 'server error', { status: 500, outcome: 'unknown' })
+    doc.blocks = blocks
+    doc.version = `v${Number(doc.version.replace(/\D/g, '') || '1') + 1}`
+    doc.text = JSON.stringify(blocks)
+    if (behavior === 'apply_then_connection_error') throw new ConnectorError('connection', 'reply lost', { outcome: 'unknown' })
+    return { version: doc.version }
   }
 }

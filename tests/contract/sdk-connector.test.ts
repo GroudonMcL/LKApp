@@ -29,6 +29,7 @@ let baseUrl: string
 let requests: Recorded[] = []
 let createMode: 'ok' | '503' | 'invalid' = 'ok'
 let resourcesListMode: 'ok' | '503' = 'ok'
+let patchMode: 'ok' | '503' = 'ok'
 
 function send(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json', 'x-request-id': `req_${requests.length}` })
@@ -79,7 +80,18 @@ beforeAll(async () => {
     if (req.method === 'GET' && blocksMatch) {
       return send(res, 200, { id: blocksMatch[2], version: 'ver-7', schema: 1, text: 'Hello', blocks: [{ id: 'b1', kind: 'paragraph', content: [{ text: 'Hello' }] }, { id: 'b2', kind: 'unsupported' }] })
     }
+    if (req.method === 'PUT' && blocksMatch) {
+      if (req.headers['if-match'] !== 'ver-7' && (requests.at(-1)!.body as { ifMatch?: string })?.ifMatch !== 'ver-7') return send(res, 412, error('VERSION_MISMATCH', 'The document is at ver-8'))
+      return send(res, 200, { id: blocksMatch[2], version: 'ver-8', schema: 1, text: 'New', blocks: [] })
+    }
     const resourceMatch = /^\/api\/v3\/projects\/[^/]+\/resources\/([^/]+)$/.exec(path)
+    if (req.method === 'PATCH' && resourceMatch) {
+      if (patchMode === '503') return send(res, 503, error('INTERNAL', 'Unavailable'))
+      const found = resources.find((r) => r.id === resourceMatch[1])
+      if (!found) return send(res, 404, error('NOT_FOUND', 'Resource not found'))
+      const body = requests.at(-1)!.body as { tags?: string[] }
+      return send(res, 200, { ...found, tags: body.tags ?? found.tags, updatedAt: '2026-10-11T12:00:00Z', permissions: {}, documents: found.documents.map((d) => ({ ...d, rank: 'a0', isHidden: false })), properties: [] })
+    }
     if (req.method === 'GET' && resourceMatch) {
       const found = resources.find((r) => r.id === resourceMatch[1])
       if (!found) return send(res, 404, error('NOT_FOUND', 'Resource not found'))
@@ -102,6 +114,7 @@ beforeEach(() => {
   requests = []
   createMode = 'ok'
   resourcesListMode = 'ok'
+  patchMode = 'ok'
 })
 
 const connector = () => new SdkConnector({ apiKey: KEY, baseUrl, timeoutMs: 5000 })
@@ -188,4 +201,25 @@ describe('SdkConnector against a local server that follows the documented API', 
     await expect(connector().listResources({ limit: 2 })).rejects.toMatchObject({ kind: 'server' })
     expect(requests.filter((r) => r.path.startsWith(`/api/v3/projects/${PROJECT.id}/resources`))).toHaveLength(3)
   }, 20_000)
+
+  it('replaces a resource’s tags with a body that matches the spec, and never retries a failed update', async () => {
+    const lk = connector()
+    const result = await lk.updateResourceTags('res1aaaaa', ['NPC', 'Greyhawk'])
+    expect(result).toEqual({ tags: ['NPC', 'Greyhawk'], updatedAt: '2026-10-11T12:00:00Z' })
+    const patch = requests.find((r) => r.method === 'PATCH')!
+    expect(patch.body).toEqual({ tags: ['NPC', 'Greyhawk'] })
+    expect(validateAgainstSpec('ResourceUpdateParams', patch.body).valid).toBe(true)
+    requests = []
+    patchMode = '503'
+    await expect(lk.updateResourceTags('res1aaaaa', ['NPC'])).rejects.toMatchObject({ kind: 'server', details: { outcome: 'unknown' } })
+    expect(requests.filter((r) => r.method === 'PATCH')).toHaveLength(1)
+  })
+
+  it('replaces page content only at the expected version', async () => {
+    const lk = connector()
+    await expect(lk.replaceDocumentBlocks('res1aaaaa', 'doc1', [p('New')], 'ver-7')).resolves.toEqual({ version: 'ver-8' })
+    const put = requests.find((r) => r.method === 'PUT')!
+    expect(validateAgainstSpec('DocumentBlocksWrite', put.body).valid).toBe(true)
+    await expect(lk.replaceDocumentBlocks('res1aaaaa', 'doc1', [p('New')], 'ver-6')).rejects.toMatchObject({ kind: 'version_conflict', details: { outcome: 'not_applied' } })
+  })
 })
