@@ -579,8 +579,8 @@ export class IndexRepo {
 
   /** Every indexed resource with a readable path, for reference resolution. */
   forReferences(projectId: string): IndexedResource[] {
-    const rows = this.db.prepare('SELECT id, name, parent_id, aliases FROM lk_index_resources WHERE project_id = ?').all(projectId) as {
-      id: string; name: string; parent_id: string | null; aliases: string
+    const rows = this.db.prepare('SELECT id, name, parent_id, aliases, tags FROM lk_index_resources WHERE project_id = ?').all(projectId) as {
+      id: string; name: string; parent_id: string | null; aliases: string; tags: string
     }[]
     const byId = new Map(rows.map((row) => [row.id, row]))
     const pathOf = (row: { parent_id: string | null }): string | null => {
@@ -593,7 +593,7 @@ export class IndexRepo {
       }
       return names.length ? names.join(' / ') : null
     }
-    return rows.map((row) => ({ id: row.id, name: row.name, aliases: JSON.parse(row.aliases), parentId: row.parent_id, path: pathOf(row) }))
+    return rows.map((row) => ({ id: row.id, name: row.name, aliases: JSON.parse(row.aliases), parentId: row.parent_id, path: pathOf(row), tags: JSON.parse(row.tags) as string[] }))
   }
 
   clear(projectId: string) {

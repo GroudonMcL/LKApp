@@ -107,7 +107,10 @@ export class SdkConnector implements LegendKeeperConnector {
   async search(query: string, limit: number): Promise<SearchHit[]> {
     return this.call(async () => {
       const page = await this.reader.search.search({ q: query, limit: Math.min(Math.max(limit, 1), 100) })
-      return page.data.map((hit) => ({
+      // LegendKeeper returns a resource once per matching document; keep its best (first) hit.
+      const seen = new Set<string>()
+      const unique = page.data.filter((hit) => (seen.has(hit.resource.id) ? false : (seen.add(hit.resource.id), true)))
+      return unique.map((hit) => ({
         resourceId: hit.resource.id,
         name: hit.resource.name,
         parentId: hit.resource.parentId ?? null,

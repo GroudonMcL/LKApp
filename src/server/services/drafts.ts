@@ -198,7 +198,7 @@ export function addReference(ctx: AppContext, draftId: string, mention: string, 
   if (!text) throw new ServiceError(400, 'Enter the name as it appears in the text.')
   if (draft.page.references.some((ref) => ref.mention === text)) throw new ServiceError(409, 'That reference already exists.')
   const recipe = recipeForDraft(ctx, draft)
-  const policy = recipe?.linkPolicy ?? { mode: 'suggest' as const, autoSelectExactMatch: true, scanForKnownNames: true }
+  const policy = recipe?.linkPolicy ?? { mode: 'suggest' as const, autoSelectExactMatch: true, scanForKnownNames: true, scanExcludeTags: [] }
   const page = structuredClone(draft.page)
   const nextId = `ref_${Date.now().toString(36)}`
   page.references.push(resolveOne(nextId, { mention: text, relation, origin: 'user' }, referenceIndex(ctx), policy))

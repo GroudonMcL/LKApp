@@ -78,6 +78,16 @@ describe('reference resolution', () => {
     expect(found).toEqual(['Mordenkainen', 'Free City of Greyhawk'])
   })
 
+  it('can leave pages with excluded tags (e.g. a rules glossary) out of the name scan', () => {
+    const tagged = new ReferenceIndex([
+      { id: 'g_ac', name: 'Armor Class', aliases: [], parentId: null, tags: ['Glossary'] },
+      { id: 'n_igg', name: 'Iggwilv', aliases: [], parentId: null, tags: ['NPC'] },
+    ])
+    const text = 'Armor Class: 12. Apprentice of Iggwilv.'
+    expect(tagged.scanText(text)).toEqual(['Armor Class', 'Iggwilv'])
+    expect(tagged.scanText(text, [], { excludeTags: ['Glossary'] })).toEqual(['Iggwilv'])
+  })
+
   it('returns no references without an index', () => {
     const [ref] = resolveReferences([{ mention: 'Mordenkainen', relation: null, origin: 'ai' }], null, policy, 'x')
     expect(ref).toMatchObject({ status: 'unresolved', candidates: [] })

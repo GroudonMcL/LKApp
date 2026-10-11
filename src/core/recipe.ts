@@ -43,6 +43,11 @@ export const LinkPolicy = z.object({
   autoSelectExactMatch: z.boolean().default(true),
   /** Also scan the source for exact names of pages already in the resource index. */
   scanForKnownNames: z.boolean().default(true),
+  /**
+   * Pages carrying any of these tags are never found by the name scan, e.g. ["Glossary"] so
+   * rules terms such as "Armor Class" are not linked everywhere. Exact tag spelling.
+   */
+  scanExcludeTags: z.array(z.string().min(1).max(100)).max(50).default([]),
 })
 export type LinkPolicy = z.infer<typeof LinkPolicy>
 

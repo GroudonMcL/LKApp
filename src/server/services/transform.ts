@@ -116,7 +116,7 @@ export async function runTransform(ctx: AppContext, jobId: string, options: { mo
   const index = referenceIndex(ctx)
   const scanned =
     recipe.definition.linkPolicy.mode === 'suggest' && recipe.definition.linkPolicy.scanForKnownNames && index
-      ? index.scanText(job.sourceText, [page.name]).map((mention) => ({ mention, relation: null, origin: 'index_scan' as const }))
+      ? index.scanText(job.sourceText, [page.name], { excludeTags: recipe.definition.linkPolicy.scanExcludeTags }).map((mention) => ({ mention, relation: null, origin: 'index_scan' as const }))
       : []
   page.references = resolveReferences([...result.mentions, ...scanned], index, recipe.definition.linkPolicy, page.name)
 

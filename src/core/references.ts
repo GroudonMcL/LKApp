@@ -22,6 +22,7 @@ export interface IndexedResource {
   aliases: string[]
   parentId: string | null
   path?: string | null
+  tags?: string[]
 }
 
 const MAX_CANDIDATES = 10
@@ -88,11 +89,19 @@ export class ReferenceIndex {
    * Names shorter than four characters, and names that do not start with a capital
    * letter or digit, are ignored to avoid matching ordinary words.
    */
-  scanText(text: string, exclude: string[] = [], limit = 50): string[] {
+  scanText(text: string, exclude: string[] = [], options: { limit?: number; excludeTags?: string[] } = {}): string[] {
+    const limit = options.limit ?? 50
     const excluded = new Set(exclude.map((name) => name.trim()))
+    const excludedTags = new Set(options.excludeTags ?? [])
+    // A name is skipped when every page with that name or alias carries an excluded tag.
+    const onlyExcluded = (name: string) => {
+      if (excludedTags.size === 0) return false
+      const pages = [...(this.exactName.get(name) ?? []), ...(this.exactAlias.get(name) ?? [])]
+      return pages.length > 0 && pages.every((page) => (page.tags ?? []).some((tag) => excludedTags.has(tag)))
+    }
     const known = new Map<string, number>()
     for (const name of [...this.exactName.keys(), ...this.exactAlias.keys()]) {
-      if (name.length < 4 || !/^[\p{Lu}\p{N}]/u.test(name) || excluded.has(name)) continue
+      if (name.length < 4 || !/^[\p{Lu}\p{N}]/u.test(name) || excluded.has(name) || onlyExcluded(name)) continue
       const words = name.split(/\s+/).length
       known.set(name, Math.max(known.get(name) ?? 0, words))
     }

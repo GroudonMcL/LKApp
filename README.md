@@ -30,14 +30,13 @@ can be added later (see [Architecture](#architecture)).
 
 ## Honest status
 
-- Built and tested against the official SDK **4.0.0**, its documentation and its OpenAPI
-  schema. The environment it was built in **could not reach legendkeeper.com**, so it has
-  **not yet been run against the real LegendKeeper service**. It has been run end to end
-  against a local *rehearsal server* that imitates the documented API.
-- That is why page creation stays **disabled until you run the write check** against your
-  own project (see [First run](#first-run-step-by-step)). If anything about the live API
-  differs, the write check fails and tells you exactly what happened — it never pretends.
-- The AI path has been tested with scripted (mocked) AI responses. The first real AI
+- Built against the official SDK **4.0.0**, its documentation and its OpenAPI schema, and
+  **verified live** against a dedicated LegendKeeper test project: the capability probe
+  (27/27 checks), the live integration tests (5/5), and the full browser workflow from
+  connection test to a created, read-back page.
+- Page creation still stays **disabled until you run the write check** against *your* project
+  (see [First run](#first-run-step-by-step)) — each project is verified separately.
+- The AI path has been tested with scripted (mocked) AI responses only. The first real AI
   transformation happens when you add your Anthropic key.
 
 See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) for the full capability matrix: what the API
@@ -200,6 +199,7 @@ import is open and is deleted when it is completed or cancelled (its SHA-256 has
 Most settings are on the recipe form. *Edit as JSON* exposes everything, including:
 
 - `extraFields` — add fields to a built-in page type for this recipe.
+- `linkPolicy.scanExcludeTags` — pages with these tags are never linked by the automatic name scan (e.g. `["Glossary"]` so rules terms like “Armor Class” are not linked everywhere). Also on the form.
 - `customPageType` — define your own page type, e.g.:
 
 ```json
@@ -229,7 +229,7 @@ Historical event. Each keeps game mechanics separate from lore.
 ## Tests
 
 ```sh
-npm test               # 120 unit and contract tests; never touch LegendKeeper or Anthropic
+npm test               # 121 unit and contract tests; never touch LegendKeeper or Anthropic
 npm run typecheck      # TypeScript
 npm run check          # both
 ```
@@ -303,7 +303,7 @@ LKC_PROBE=1 npx tsx scripts/probe-legendkeeper.ts   # report in data/probe-repor
 | *LegendKeeper rejected the API key* (401) | The key is wrong, revoked or expired. Create a new one. |
 | *API keys need the project owner to be on a paid plan* (402) | The owner's plan must be paid (not a trial). |
 | *…refused the request because the key's role…* (403) | Use an ADMIN key for tags or top-level pages, or create under a parent you can edit. |
-| *Could not reach LegendKeeper* | Check your internet connection, firewall, and `LEGENDKEEPER_BASE_URL` (empty for the real service). |
+| *Could not reach LegendKeeper* | Check your internet connection, firewall, and `LEGENDKEEPER_BASE_URL` (empty for the real service). Behind a corporate proxy, Node.js ignores `HTTPS_PROXY` unless you also set `NODE_USE_ENV_PROXY=1` (Node 22.21 or newer). |
 | *rate limit was reached* (429) | Wait the indicated time. Pause a running scan if needed. |
 | *The outcome is uncertain* | Click *Check outcome*. The app looks for the page by its planned ID. Never re-create it manually first. |
 | *A resource with this draft's ID already exists, but this key cannot read it* | Possibly a deleted page in the trash. Check LegendKeeper; if the page is not there, use *Assign a new page ID*. |

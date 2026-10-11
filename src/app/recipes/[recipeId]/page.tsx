@@ -18,7 +18,7 @@ const BLANK: RecipeDefinitionInput = {
   requiredFields: [],
   fieldMappings: [],
   tagPolicy: { mode: 'existing_only', alwaysAdd: [], includePageTypeTag: true, maxSuggestions: 6, guidance: '' },
-  linkPolicy: { mode: 'suggest', autoSelectExactMatch: true, scanForKnownNames: true },
+  linkPolicy: { mode: 'suggest', autoSelectExactMatch: true, scanForKnownNames: true, scanExcludeTags: [] },
   aiInstructions: '',
   freeTextInstructions: '',
   missingInfoRules: '',
@@ -280,6 +280,17 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
                   <input type="checkbox" checked={definition.linkPolicy?.scanForKnownNames ?? true} onChange={(e) => set({ linkPolicy: { ...definition.linkPolicy, scanForKnownNames: e.target.checked } })} />
                   <span>Also scan the source for exact names of known pages</span>
                 </label>
+                <div className="field">
+                  <label htmlFor="r-scanexclude">
+                    Never link pages with these tags in the name scan <span className="hint">(comma-separated, exact spelling — e.g. Glossary)</span>
+                  </label>
+                  <input
+                    id="r-scanexclude"
+                    type="text"
+                    value={(definition.linkPolicy?.scanExcludeTags ?? []).join(', ')}
+                    onChange={(e) => set({ linkPolicy: { ...definition.linkPolicy, scanExcludeTags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean) } })}
+                  />
+                </div>
               </fieldset>
             </div>
           </Card>

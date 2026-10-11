@@ -168,6 +168,8 @@ function Block({ block, names }: { block: AnyBlock; names: Names }): ReactNode {
 /** `names` maps resource IDs to page names, so link lists show names rather than IDs. */
 export function LkBlocksPreview({ blocks, names = {} }: { blocks: unknown[]; names?: Names }) {
   if (blocks.length === 0) return <p className="muted">(empty page)</p>
+  // LegendKeeper returns each mention with the page's current name; reuse those for link lists.
+  names = { ...namesFromMentions(blocks), ...names }
   return (
     <div className="lk-preview">
       {(blocks as AnyBlock[]).map((block, i) => (
@@ -175,4 +177,14 @@ export function LkBlocksPreview({ blocks, names = {} }: { blocks: unknown[]; nam
       ))}
     </div>
   )
+}
+
+function namesFromMentions(value: unknown, out: Names = {}): Names {
+  if (Array.isArray(value)) for (const item of value) namesFromMentions(item, out)
+  else if (value && typeof value === 'object') {
+    const mention = (value as { mention?: { resourceId?: string; name?: string } }).mention
+    if (mention?.resourceId && mention.name) out[mention.resourceId] = mention.name
+    for (const inner of Object.values(value)) if (inner && typeof inner === 'object') namesFromMentions(inner, out)
+  }
+  return out
 }
