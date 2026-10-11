@@ -187,10 +187,39 @@ describe('copying a layout from LegendKeeper (service)', async () => {
     expect(report?.droppedParts).toHaveLength(2)
     expect(report?.rows.find((row) => row.key === 'Armour Class')?.fields).toEqual(['Armor Class'])
 
-    // Refreshing updates the same template.
+    // A matching recipe is made, based on the creature example, with creation switched on.
+    const { recipe } = await copyLayoutFromLegendKeeper(ctx, { resource: 'l1ylm24t', pageType: 'creature', createRecipe: false })
+    expect(recipe).toBeNull()
+    const made = ctx.repos.recipes.list().filter((r) => r.definition.templateId === template.id)
+    expect(made.map((r) => r.definition.name)).toEqual(['Statblock'])
+    expect(made[0]!.definition).toMatchObject({ targetPageType: 'creature', allowCreate: true, requiredFields: ['armorClass', 'hitPoints'] })
+
+    // Refreshing updates the same template and makes no second recipe.
     const again = await copyLayoutFromLegendKeeper(ctx, { resource: 'l1ylm24t', pageType: 'creature', templateId: template.id })
     expect(again.template.id).toBe(template.id)
-    expect(ctx.repos.templates.list().filter((t) => t.definition.lkLayout).length).toBe(1)
+    expect(again.recipe).toBeNull()
+    expect(ctx.repos.recipes.list().filter((r) => r.definition.templateId === template.id)).toHaveLength(1)
+  })
+
+  it('lets an import choose its template, and the draft switch it later', async () => {
+    const ctx = setup()
+    const { template } = await copyLayoutFromLegendKeeper(ctx, { resource: 'l1ylm24t', pageType: 'creature', createRecipe: false })
+    const { createImport } = await import('@/server/services/imports')
+    const { runTransform } = await import('@/server/services/transform')
+    const { saveDraft } = await import('@/server/services/drafts')
+    const example = ctx.repos.recipes.list().find((r) => r.definition.name === 'Creature statblock')!
+    expect(example.definition.templateId).toBe('example-creature')
+    const job = createImport(ctx, { bytes: new TextEncoder().encode(fixture('statblock-2024.txt')), fileName: null, mimeType: 'text/plain', declaredFormat: 'text', sourceKind: 'paste', name: null, attributionTitle: null, citation: null, recipeId: example.id })
+
+    const withLayout = await runTransform(ctx, job.id, { mode: 'structural', templateId: template.id })
+    expect(withLayout.template?.id).toBe(template.id)
+    expect(withLayout.templateChoices.map((t) => t.id)).toEqual(expect.arrayContaining([template.id, 'example-creature']))
+    expect((withLayout.preview!.blocks[0] as { kind: string }).kind).toBe('infobox')
+
+    const switched = await saveDraft(ctx, withLayout.draft.id, { ...withLayout.draft.page, templateId: 'example-creature' }, withLayout.draft.revision)
+    expect(switched.template?.id).toBe('example-creature')
+
+    await expect(runTransform(ctx, job.id, { mode: 'structural', templateId: 'example-npc' })).rejects.toThrow(/for “npc” pages/)
   })
 
   it('accepts a link to a page and explains empty pages', async () => {

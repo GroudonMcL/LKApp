@@ -32,7 +32,7 @@ const positiveInt = (fallback: number) =>
 const EnvSchema = z.object({
   LEGENDKEEPER_API_KEY: optionalString,
   LEGENDKEEPER_BASE_URL: optionalString,
-  LKC_ALLOW_WRITES: boolFromEnv(false),
+  LKC_ALLOW_WRITES: boolFromEnv(true),
   LKC_SANDBOX_PARENT_ID: optionalString,
   ANTHROPIC_API_KEY: optionalString,
   LKC_AI_ENABLED: boolFromEnv(true),

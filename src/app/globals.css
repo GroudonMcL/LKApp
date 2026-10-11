@@ -196,3 +196,9 @@ summary { cursor: pointer; color: var(--accent); }
   padding: 1rem;
   text-align: center;
 }
+.inline-select {
+  width: auto;
+  display: inline-block;
+  padding: 0.1rem 0.3rem;
+  font-size: inherit;
+}

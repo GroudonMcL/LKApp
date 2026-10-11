@@ -54,7 +54,7 @@ function Dashboard({ data }: { data: StatusResponse }) {
             </p>
           ) : (
             <p>
-              <Badge>Not tested</Badge> Test the connection to see your project.
+              <Badge>Not connected yet</Badge> Check the API key on the Connection page.
             </p>
           )}
           <p className="muted small">SDK @legendkeeper/sdk {lk.sdkVersion}</p>

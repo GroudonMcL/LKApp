@@ -5,9 +5,11 @@ import { LK_TEMPLATES_PARENT_ID, skeletonFromBlocks, summarizeLayout, type LkLay
 import { findBuiltInPageType } from '@/core/page-types'
 import { TemplateDefinition, type PageTemplate } from '@/core/template'
 import type { AppContext } from '../context'
+import type { Recipe } from '@/core/recipe'
 import { recordAudit } from './audit'
 import { requireProjectId } from './connection'
 import { ServiceError } from './errors'
+import { recipeFromTemplate } from './recipes'
 
 /**
  * Copying page layouts from LegendKeeper. Read-only towards LegendKeeper: it lists resources
@@ -48,6 +50,8 @@ export const CopyLayoutInput = z.object({
   name: z.string().trim().max(200).optional(),
   /** Update this local template instead of creating a new one. */
   templateId: z.string().max(100).optional(),
+  /** Also make a recipe that uses the new template (not when refreshing). */
+  createRecipe: z.boolean().default(true),
 })
 
 /** Accepts a bare id or a LegendKeeper link and returns the resource id. */
@@ -61,7 +65,7 @@ export function resourceIdFrom(input: string): string {
   throw new ServiceError(400, 'Enter a LegendKeeper page id (for example “l1ylm24t”) or a link to the page.')
 }
 
-export async function copyLayoutFromLegendKeeper(ctx: AppContext, input: unknown): Promise<{ template: PageTemplate; report: ReturnType<typeof layoutReport> }> {
+export async function copyLayoutFromLegendKeeper(ctx: AppContext, input: unknown): Promise<{ template: PageTemplate; report: ReturnType<typeof layoutReport>; recipe: Recipe | null }> {
   const parsed = CopyLayoutInput.safeParse(input)
   if (!parsed.success) throw new ServiceError(400, 'The request is not valid.', parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`))
   const { pageType: pageTypeId, templateId } = parsed.data
@@ -120,7 +124,8 @@ export async function copyLayoutFromLegendKeeper(ctx: AppContext, input: unknown
     details: { templateId: id, sourceResourceId: resource.id, sourceKind: layout.sourceKind, droppedParts },
   })
   const template = ctx.repos.templates.get(id)!
-  return { template, report: layoutReport(template) }
+  const recipe = !existing && parsed.data.createRecipe ? recipeFromTemplate(ctx, id, { name: resource.name }) : null
+  return { template, report: layoutReport(template), recipe }
 }
 
 /** What the app will do with each part of a copied layout, in words for the template screen. */

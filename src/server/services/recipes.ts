@@ -1,7 +1,7 @@
 import 'server-only'
 import { z } from 'zod'
 import { newAppId } from '@/core/ids'
-import { RecipeDefinition, type Recipe } from '@/core/recipe'
+import { EXAMPLE_RECIPES, RecipeDefinition, type Recipe } from '@/core/recipe'
 import { resolvePageType } from '@/core/resolve'
 import { TemplateDefinition, type PageTemplate } from '@/core/template'
 import type { AppContext } from '../context'
@@ -107,4 +107,29 @@ export function deleteTemplate(ctx: AppContext, id: string) {
   if (inUse.length) throw new ServiceError(409, `The template is used by: ${inUse.map((r) => r.definition.name).join(', ')}.`)
   ctx.repos.templates.delete(id)
   recordAudit(ctx, { operation: 'template.delete', outcome: 'success', details: { templateId: id } })
+}
+
+/**
+ * Makes a recipe that uses this template. It starts from the built-in example recipe for the
+ * template's page type (tag and link rules, AI instructions, required fields), named after the
+ * template, with creation after approval switched on. Edit it like any other recipe.
+ */
+export function recipeFromTemplate(ctx: AppContext, templateId: string, options: { name?: string } = {}): Recipe {
+  const template = ctx.repos.templates.get(templateId)
+  if (!template) throw new ServiceError(404, 'Template not found.')
+  const base = EXAMPLE_RECIPES.find((example) => example.targetPageType === template.definition.pageType)
+  const name = options.name?.trim() || template.definition.name.replace(/ \(from LegendKeeper\)$| \(example\)$/, '')
+  const taken = new Set(ctx.repos.recipes.list().map((recipe) => recipe.definition.name))
+  let unique = name
+  for (let n = 2; taken.has(unique); n++) unique = `${name} (${n})`
+  const source = template.definition.lkLayout ? `the LegendKeeper ${template.definition.lkLayout.sourceKind} “${template.definition.lkLayout.sourceName}”` : `the template “${template.definition.name}”`
+  const definition = RecipeDefinition.parse({
+    ...(base ?? {}),
+    name: unique,
+    description: `Lays pages out like ${source}.${base?.description ? ` ${base.description}` : ''}`,
+    targetPageType: template.definition.pageType,
+    templateId,
+    allowCreate: true,
+  })
+  return createRecipe(ctx, definition)
 }

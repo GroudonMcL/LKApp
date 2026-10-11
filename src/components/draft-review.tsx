@@ -66,7 +66,27 @@ export function DraftReview({ view, sourceText, onChange }: { view: DraftView; s
       >
         <p className="small muted">
           Revision {view.draft.revision} · {view.pageType?.label ?? page.pageType} · recipe {view.recipe ? `“${view.recipe.name}” v${view.recipe.version}` : 'unknown'} · template{' '}
-          {view.template ? (
+          {editable && view.templateChoices.length > 1 ? (
+            <select
+              aria-label="Template"
+              className="inline-select"
+              value={view.template?.id ?? ''}
+              disabled={save.busy}
+              onChange={(e) => {
+                // Switching the layout saves the draft (with any unsaved edits) and refreshes the preview.
+                const next = { ...page, templateId: e.target.value || null }
+                void save.run(async () => onChange(await api.put<DraftView>(`/api/drafts/${view.draft.id}`, { page: next, expectedRevision: view.draft.revision })))
+              }}
+            >
+              {!view.template?.id && <option value="">{view.template?.name ?? 'default layout'}</option>}
+              {view.templateChoices.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.fromLegendKeeper ? ' — from LegendKeeper' : t.origin === 'example' ? ' — example' : ''}
+                </option>
+              ))}
+            </select>
+          ) : view.template ? (
             <>
               “{view.template.name}” <Badge tone={view.template.origin === 'local' ? 'info' : 'neutral'}>{view.template.origin === 'example' ? 'example template' : view.template.origin === 'local' ? 'local template' : 'page type default'}</Badge>
             </>

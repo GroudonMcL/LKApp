@@ -2,7 +2,7 @@ import 'server-only'
 import { p } from '@legendkeeper/sdk/blocks'
 import { idempotencyKeyFor, newAppId, newLkResourceId } from '@/core/ids'
 import { acceptedTags, type CanonicalPage } from '@/core/page-model'
-import { resolvePageType, resolveTemplate } from '@/core/resolve'
+import { resolvePageType } from '@/core/resolve'
 import type { AppContext } from '../context'
 import type { Draft } from '../db/repositories'
 import { ConnectorError, toConnectorError } from '../lk/errors'
@@ -11,16 +11,17 @@ import type { CreatePageInput, CreatedPage } from '../lk/types'
 import { randomToken, sha256Hex, stableStringify } from '../hash'
 import { recordAudit } from './audit'
 import { knownProjectId } from './connection'
-import { getDraft, recipeForDraft, validateWithRender } from './drafts'
+import { getDraft, recipeForDraft, templateForDraft, validateWithRender } from './drafts'
 import { ServiceError } from './errors'
 
 /**
  * Guarded single-page creation.
  *
  * Nothing reaches LegendKeeper unless every one of these holds:
- *  1. Writes are switched on in configuration (LKC_ALLOW_WRITES=true).
- *  2. Page creation has been verified against this project with this SDK version
- *     (the "write check", which creates one clearly named test page under a sandbox parent).
+ *  1. Writes are switched on in configuration (LKC_ALLOW_WRITES, on by default).
+ *  2. (No separate gate.) Page creation was verified live for this SDK version; the first
+ *     page you approve for a project is recorded as confirmation that writing works there.
+ *     The optional "write check" on the Connection page does the same with a test page.
  *  3. The draft's recipe allows creation.
  *  4. The draft validates with no errors, and the user acknowledges any warnings.
  *  5. The connection is confirmed live, and the key's project is the expected project.
@@ -49,28 +50,13 @@ export function configBlockers(ctx: AppContext): Blocker[] {
   const blockers: Blocker[] = []
   if (!config.lk.apiKey) blockers.push({ code: 'NO_KEY', message: 'No LegendKeeper API key is configured.' })
   if (!config.lk.allowWrites) {
-    blockers.push({ code: 'WRITES_DISABLED', message: 'Writes are switched off. Set LKC_ALLOW_WRITES=true in .env.local and restart the app to enable them.' })
+    blockers.push({ code: 'WRITES_DISABLED', message: 'Writes are switched off (LKC_ALLOW_WRITES=false in .env.local). Remove that line or set it to true, then restart the app.' })
   }
   return blockers
 }
 
-export function verificationBlocker(ctx: AppContext): Blocker | null {
-  const projectId = knownProjectId(ctx)
-  if (!projectId) return { code: 'NOT_CONNECTED', message: 'Test the LegendKeeper connection first.' }
-  const verification = ctx.repos.verifications.latest(projectId, ctx.sdkVersion)
-  if (!verification) {
-    return {
-      code: 'WRITE_NOT_VERIFIED',
-      message: `Page creation has not been verified for this project with SDK ${ctx.sdkVersion}. Run the write check on the Connection page first.`,
-    }
-  }
-  return null
-}
-
 export function draftBlockers(ctx: AppContext, draft: Draft): Blocker[] {
   const blockers = [...configBlockers(ctx)]
-  const verification = verificationBlocker(ctx)
-  if (verification) blockers.push(verification)
   const recipe = recipeForDraft(ctx, draft)
   if (!recipe) blockers.push({ code: 'NO_RECIPE', message: 'The draft has no recipe.' })
   else if (!recipe.allowCreate) {
@@ -91,7 +77,7 @@ function renderFor(ctx: AppContext, draft: Draft, page: CanonicalPage, plannedRe
   const recipe = recipeForDraft(ctx, draft)!
   const pageType = resolvePageType(recipe)
   if (!pageType) throw new ServiceError(400, 'The recipe’s page type is not defined.')
-  const template = resolveTemplate(pageType, recipe.templateId ? ctx.repos.templates.get(recipe.templateId) : null)
+  const { template } = templateForDraft(ctx, pageType, page, recipe)
   const provisional = buildCreatePayload(page, { pageType, template }, plannedResourceId, 'pending')
   const hash = payloadHash(provisional)
   const payload = { ...provisional, idempotencyKey: idempotencyKeyFor('lkc', plannedResourceId, hash.slice(0, 16)) }
@@ -124,7 +110,11 @@ export async function prepareWrite(ctx: AppContext, draftId: string) {
   }
   const expected = knownProjectId(ctx)
   if (expected && expected !== project.id) {
-    throw new ServiceError(409, `The API key now belongs to a different project (${project.name}) than the one this app was set up with. Test the connection again and re-run the write check.`)
+    throw new ServiceError(409, `The API key now belongs to a different project (${project.name}) than the one this app was set up with. Test the connection again, then open the final preview again.`)
+  }
+  if (!expected) {
+    ctx.repos.settings.set('lk.lastProjectId', project.id)
+    ctx.repos.settings.set('lk.lastProjectName', project.name)
   }
 
   // Confirm the parent and every linked page exist.
@@ -308,6 +298,7 @@ async function finishCreated(ctx: AppContext, draftId: string, created: CreatedP
   })
   ctx.repos.jobs.update(draft.jobId, { status: 'completed' })
   ctx.repos.jobs.purgeSource(draft.jobId)
+  recordFirstWrite(ctx, created, readback)
 
   const mismatches: string[] = []
   if (readback.name !== null && readback.name !== payload.name) mismatches.push(`name is “${readback.name}”`)
@@ -323,6 +314,20 @@ async function finishCreated(ctx: AppContext, draftId: string, created: CreatedP
     details: { documentId: created.documentId, version: readback.version, readbackError: readback.error, mismatches, blocks: readback.blockCount, idempotencyKey: payload.idempotencyKey },
   })
   return { status: 'created' as const, resourceId: created.resourceId, documentId: created.documentId, version: readback.version, readback, mismatches, acceptedTags: acceptedTags(page) }
+}
+
+/** The first page created (and read back) for a project with this SDK version confirms that writing works there. */
+function recordFirstWrite(ctx: AppContext, created: CreatedPage, readback: { error: string | null; version: string | null }) {
+  const projectId = knownProjectId(ctx)
+  if (!projectId || readback.error !== null || ctx.repos.verifications.latest(projectId, ctx.sdkVersion)) return
+  ctx.repos.verifications.insert({
+    id: newAppId('ver'),
+    projectId,
+    sdkVersion: ctx.sdkVersion,
+    resourceId: created.resourceId,
+    documentId: created.documentId,
+    details: { name: created.name, method: 'first_write', version: readback.version },
+  })
 }
 
 async function readBack(ctx: AppContext, created: CreatedPage) {
@@ -358,7 +363,7 @@ export async function checkOutcome(ctx: AppContext, draftId: string) {
     const pageType = recipe ? resolvePageType(recipe) : null
     const payload: CreatePageInput =
       pageType && recipe
-        ? buildCreatePayload(draft.page, { pageType, template: resolveTemplate(pageType, recipe.templateId ? ctx.repos.templates.get(recipe.templateId) : null) }, draft.plannedResourceId, draft.idempotencyKey ?? '')
+        ? buildCreatePayload(draft.page, { pageType, template: templateForDraft(ctx, pageType, draft.page, recipe).template }, draft.plannedResourceId, draft.idempotencyKey ?? '')
         : { resourceId: draft.plannedResourceId, name: draft.page.name, parentId: draft.page.parentId, tags: acceptedTags(draft.page), aliases: draft.page.aliases, documentName: 'Main', blocks: [], idempotencyKey: draft.idempotencyKey ?? '' }
     return finishCreated(ctx, draftId, existence.created, payload, auditBase, 'Confirmed created by outcome check')
   }

@@ -50,9 +50,10 @@ describe('secret handling', () => {
     expect(summary).toContain('"keyConfigured":true')
   })
 
-  it('reads configuration safely: writes default to off, AI effort is validated', () => {
+  it('reads configuration safely: writes default to on (each page still needs approval), AI effort is validated', () => {
     const config = getConfig({ LEGENDKEEPER_API_KEY: 'lk_x', LKC_AI_EFFORT: 'turbo' } as unknown as NodeJS.ProcessEnv)
-    expect(config.lk.allowWrites).toBe(false)
+    expect(config.lk.allowWrites).toBe(true)
+    expect(getConfig({ LKC_ALLOW_WRITES: 'false' } as unknown as NodeJS.ProcessEnv).lk.allowWrites).toBe(false)
     expect(config.ai.effort).toBe('high')
     expect(config.ai.model).toBe('claude-opus-5-5')
     expect(getConfig({ LKC_ALLOW_WRITES: 'TRUE' } as unknown as NodeJS.ProcessEnv).lk.allowWrites).toBe(true)

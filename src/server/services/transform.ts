@@ -24,7 +24,7 @@ export type TransformMode = 'ai' | 'structural'
  *
  * Nothing is written to LegendKeeper here. A finished transformation only produces a draft.
  */
-export async function runTransform(ctx: AppContext, jobId: string, options: { mode: TransformMode; recipeId?: string | null }) {
+export async function runTransform(ctx: AppContext, jobId: string, options: { mode: TransformMode; recipeId?: string | null; templateId?: string | null }) {
   const job = ctx.repos.jobs.get(jobId)
   if (!job) throw new ServiceError(404, 'Import job not found.')
   if (job.status === 'cancelled' || job.status === 'completed') throw new ServiceError(409, `This import is ${job.status}.`)
@@ -41,7 +41,14 @@ export async function runTransform(ctx: AppContext, jobId: string, options: { mo
   if (!recipe) throw new ServiceError(400, 'The chosen recipe does not exist.')
   const pageType = resolvePageType(recipe.definition)
   if (!pageType) throw new ServiceError(400, `The recipe's page type “${recipe.definition.targetPageType}” is not defined.`)
-  const templateRecord = recipe.definition.templateId ? ctx.repos.templates.get(recipe.definition.templateId) : null
+  // A template chosen for this import replaces the recipe's (it must be for the same page type).
+  let templateRecord = recipe.definition.templateId ? ctx.repos.templates.get(recipe.definition.templateId) : null
+  if (options.templateId) {
+    const chosen = ctx.repos.templates.get(options.templateId)
+    if (!chosen) throw new ServiceError(400, 'The chosen template does not exist.')
+    if (chosen.definition.pageType !== pageType.id) throw new ServiceError(400, `The template “${chosen.definition.name}” is for “${chosen.definition.pageType}” pages, but this recipe makes “${pageType.id}” pages.`)
+    templateRecord = chosen
+  }
   const template = resolveTemplate(pageType, templateRecord)
 
   const draftContext: DraftContext = {

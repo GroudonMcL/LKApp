@@ -22,7 +22,7 @@ const BLANK: RecipeDefinitionInput = {
   aiInstructions: '',
   freeTextInstructions: '',
   missingInfoRules: '',
-  allowCreate: false,
+  allowCreate: true,
   defaultParentId: null,
 }
 
@@ -328,7 +328,7 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
 
           <Card title="Writing">
             <label className="check">
-              <input type="checkbox" checked={definition.allowCreate ?? false} onChange={(e) => set({ allowCreate: e.target.checked })} />
+              <input type="checkbox" checked={definition.allowCreate ?? true} onChange={(e) => set({ allowCreate: e.target.checked })} />
               <span>
                 <strong>Allow creation after approval.</strong> When off, drafts made with this recipe can be reviewed but never written. Even when on, every page needs your explicit
                 approval in the final preview.

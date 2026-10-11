@@ -75,9 +75,9 @@ describe('recipes and templates', () => {
     for (const template of EXAMPLE_TEMPLATES) expect(TemplateDefinition.safeParse(template.definition).success).toBe(true)
   })
 
-  it('defaults to the safest policies', () => {
+  it('defaults: creation allowed after approval, existing tags only, exact links', () => {
     const recipe = RecipeDefinition.parse({ name: 'x', targetPageType: 'npc' })
-    expect(recipe.allowCreate).toBe(false)
+    expect(recipe.allowCreate).toBe(true)
     expect(recipe.tagPolicy.mode).toBe('existing_only')
     expect(recipe.linkPolicy.autoSelectExactMatch).toBe(true)
   })

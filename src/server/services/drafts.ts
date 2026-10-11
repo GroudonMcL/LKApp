@@ -5,6 +5,7 @@ import { recheckTags } from '@/core/tagging'
 import { resolvePageType, resolveTemplate } from '@/core/resolve'
 import { validateDraft, type ValidationContext } from '@/core/validation'
 import type { RecipeDefinition } from '@/core/recipe'
+import type { PageTypeDefinition } from '@/core/page-types'
 import type { AppContext } from '../context'
 import type { Draft, ImportJob } from '../db/repositories'
 import { buildCreatePayload, payloadBytes, renderPageBlocks, MAX_PAYLOAD_BYTES } from '../lk/render'
@@ -22,6 +23,24 @@ export function recipeForDraft(ctx: AppContext, draft: Pick<Draft, 'recipeId' | 
     if (exact) return exact
   }
   return ctx.repos.recipes.get(draft.recipeId)?.definition ?? null
+}
+
+/**
+ * The template a draft is laid out with: the one chosen for the draft (at import or in
+ * review), else the recipe's. A template for another page type is ignored.
+ */
+export function templateForDraft(ctx: AppContext, pageType: PageTypeDefinition, page: Pick<CanonicalPage, 'templateId'>, recipe: RecipeDefinition | null) {
+  const chosen = page.templateId ? ctx.repos.templates.get(page.templateId) : null
+  const record = chosen && chosen.definition.pageType === pageType.id ? chosen : recipe?.templateId ? ctx.repos.templates.get(recipe.templateId) : null
+  return { record, template: resolveTemplate(pageType, record) }
+}
+
+/** Templates that can lay out pages of this type, for the template pickers. */
+export function templateChoices(ctx: AppContext, pageTypeId: string) {
+  return ctx.repos.templates
+    .list()
+    .filter((t) => t.definition.pageType === pageTypeId)
+    .map((t) => ({ id: t.id, name: t.definition.name, origin: t.origin, fromLegendKeeper: t.definition.lkLayout !== null }))
 }
 
 export function referenceIndex(ctx: AppContext): ReferenceIndex | null {
@@ -50,7 +69,7 @@ export function validateWithRender(ctx: AppContext, page: CanonicalPage, recipe:
   const result = validateDraft(page, vctx)
   if (result.page && vctx.pageType) {
     try {
-      const template = resolveTemplate(vctx.pageType, recipe?.templateId ? ctx.repos.templates.get(recipe.templateId) : null)
+      const { template } = templateForDraft(ctx, vctx.pageType, result.page, recipe)
       const bytes = payloadBytes(buildCreatePayload(result.page, { pageType: vctx.pageType, template }, 'a0000000000000000000000a', 'size-check'))
       if (bytes > MAX_PAYLOAD_BYTES) {
         result.findings.push({ severity: 'error', code: 'PAYLOAD_TOO_LARGE', path: null, message: `The page is about ${Math.round(bytes / 1024)} KB, over the ~${Math.round(MAX_PAYLOAD_BYTES / 1024)} KB request limit. Split it into several pages.` })
@@ -74,8 +93,9 @@ export function draftView(ctx: AppContext, id: string) {
   const job = ctx.repos.jobs.get(draft.jobId)
   const recipe = recipeForDraft(ctx, draft)
   const pageType = recipe ? resolvePageType(recipe) : null
-  const templateRecord = recipe?.templateId ? ctx.repos.templates.get(recipe.templateId) : null
-  const template = pageType ? resolveTemplate(pageType, templateRecord) : null
+  const resolved = pageType ? templateForDraft(ctx, pageType, draft.page, recipe) : null
+  const templateRecord = resolved?.record ?? null
+  const template = resolved?.template ?? null
   const { findings } = validateWithRender(ctx, draft.page, recipe, job)
 
   let preview: { blocks: unknown[]; bytes: number } | null = null
@@ -96,6 +116,7 @@ export function draftView(ctx: AppContext, id: string) {
     recipe: recipe ? { id: draft.recipeId, version: draft.recipeVersion, name: recipe.name, tagPolicy: recipe.tagPolicy, linkPolicy: recipe.linkPolicy, allowCreate: recipe.allowCreate, requiredFields: recipe.requiredFields } : null,
     pageType,
     template: template ? { ...template, id: templateRecord?.id ?? null, origin: templateRecord?.origin ?? 'default' } : null,
+    templateChoices: pageType ? templateChoices(ctx, pageType.id) : [],
     parent: parent ? { id: parent.id, name: parent.name } : null,
     findings,
     preview,

@@ -42,6 +42,30 @@ export async function testConnection(ctx: AppContext): Promise<ConnectionCheck> 
   return check
 }
 
+const AUTO = Symbol.for('lk-companion.auto-connection-check')
+type AutoStore = Record<symbol, Promise<ConnectionCheck> | undefined>
+const FRESH_OK_MS = 10 * 60 * 1000
+const FRESH_FAILED_MS = 60 * 1000
+
+/**
+ * Runs the connection test automatically (read-only) when there is no recent result: on
+ * first use after the server starts, then at most every 10 minutes (every minute after a
+ * failure). Concurrent callers share one test. Never throws.
+ */
+export async function ensureConnectionChecked(ctx: AppContext): Promise<ConnectionCheck | null> {
+  if (!ctx.config().lk.apiKey) return null
+  const last = lastConnectionCheck()
+  const age = last ? ctx.now().getTime() - Date.parse(last.checkedAt) : Infinity
+  if (last && age < (last.ok ? FRESH_OK_MS : FRESH_FAILED_MS)) return last
+  const store = globalThis as unknown as AutoStore
+  if (!store[AUTO]) {
+    store[AUTO] = testConnection(ctx).finally(() => {
+      store[AUTO] = undefined
+    })
+  }
+  return store[AUTO]!
+}
+
 /** The project id from the last successful connection, used to scope the local index. */
 export function knownProjectId(ctx: AppContext): string | null {
   return ctx.repos.settings.get<string>('lk.lastProjectId')

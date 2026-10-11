@@ -11,12 +11,16 @@ import { LkBlocksPreview } from '@/components/lk-preview'
 import type { LayoutReport, LkTemplateListing, TemplateWithReport } from '@/lib/types'
 
 export default function RecipesPage() {
-  const { data, error, loading } = useApi<{ recipes: Recipe[] }>('/api/recipes')
+  const { data, error, loading, reload } = useApi<{ recipes: Recipe[] }>('/api/recipes')
+  const templateNames = useApi<{ templates: TemplateWithReport[] }>('/api/templates')
   return (
     <>
       <div className="page-header">
         <h1>Recipes & templates</h1>
-        <p>A recipe says how to turn a kind of source into a kind of page: the page type, template, fields, tag and link rules, and instructions for the AI. Recipes are versioned; each draft remembers the exact version it used.</p>
+        <p>
+          A <strong>template</strong> is how a page looks (copy one from LegendKeeper). A <strong>recipe</strong> is how a source becomes that page: the template, fields, tag and link
+          rules, and instructions for the AI. Copying a template from LegendKeeper makes a matching recipe for you. Recipes are versioned; each draft remembers the exact version it used.
+        </p>
       </div>
       <Card title="Recipes" actions={<Link className="btn btn-primary" href="/recipes/new">New recipe</Link>}>
         <ErrorBox error={error} />
@@ -29,6 +33,7 @@ export default function RecipesPage() {
                 <tr>
                   <th>Recipe</th>
                   <th>Page type</th>
+                  <th>Template</th>
                   <th>Tags</th>
                   <th>Creation</th>
                   <th>Version</th>
@@ -42,6 +47,9 @@ export default function RecipesPage() {
                       <div className="small muted">{recipe.definition.description}</div>
                     </td>
                     <td>{recipe.definition.targetPageType}</td>
+                    <td className="small">
+                      {templateNames.data?.templates.find((t) => t.id === recipe.definition.templateId)?.definition.name ?? (recipe.definition.templateId ? <code>{recipe.definition.templateId}</code> : 'default layout')}
+                    </td>
                     <td>{recipe.definition.tagPolicy.mode === 'existing_only' ? 'existing only' : 'may suggest new'}</td>
                     <td>{recipe.definition.allowCreate ? <Badge tone="good">allowed after approval</Badge> : <Badge>review only</Badge>}</td>
                     <td className="small">
@@ -54,17 +62,24 @@ export default function RecipesPage() {
           </div>
         )}
       </Card>
-      <Templates />
+      <Templates
+        recipes={data?.recipes ?? []}
+        onRecipesChanged={async () => {
+          await reload()
+          await templateNames.reload()
+        }}
+      />
     </>
   )
 }
 
-function Templates() {
+function Templates({ recipes, onRecipesChanged }: { recipes: Recipe[]; onRecipesChanged: () => Promise<void> }) {
   const { data, error, loading, reload } = useApi<{ templates: TemplateWithReport[] }>('/api/templates')
   const types = useApi<{ pageTypes: PageTypeDefinition[] }>('/api/page-types')
   const [editing, setEditing] = useState<{ id: string | null; definition: TemplateDefinitionInput } | null>(null)
   const [copying, setCopying] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
+  const [made, setMade] = useState<Recipe | null>(null)
   const action = useAction()
 
   return (
@@ -86,11 +101,19 @@ function Templates() {
       {copying && (
         <CopyFromLegendKeeper
           pageTypes={types.data?.pageTypes ?? []}
-          onDone={async () => {
+          onDone={async (recipe) => {
             setCopying(false)
+            setMade(recipe)
             await reload()
+            await onRecipesChanged()
           }}
         />
+      )}
+      {made && (
+        <Notice tone="success">
+          Made the recipe <Link href={`/recipes/${made.id}`}>“{made.definition.name}”</Link>, which uses this template. Open it to choose where new pages go (the default parent page)
+          and to adjust tag and link rules.
+        </Notice>
       )}
       <ErrorBox error={error ?? action.error} />
       {loading && <Loading />}
@@ -103,6 +126,7 @@ function Templates() {
                 <th>Origin</th>
                 <th>Page type</th>
                 <th>Sections</th>
+                <th>Recipes</th>
                 <th />
               </tr>
             </thead>
@@ -139,6 +163,28 @@ function Templates() {
                       template.definition.sections.join(' · ')
                     )}
                     {open === template.id && template.layoutReport && template.definition.lkLayout && <LayoutDetails report={template.layoutReport} blocks={template.definition.lkLayout.blocks} />}
+                  </td>
+                  <td className="small">
+                    {recipes
+                      .filter((r) => r.definition.templateId === template.id)
+                      .map((r) => (
+                        <div key={r.id}>
+                          <Link href={`/recipes/${r.id}`}>{r.definition.name}</Link>
+                        </div>
+                      ))}
+                    <Button
+                      variant="ghost"
+                      busy={action.busy}
+                      title="Make a recipe that lays pages out with this template"
+                      onClick={() =>
+                        void action.run(async () => {
+                          setMade(await api.post<Recipe>(`/api/templates/${template.id}/recipe`, {}))
+                          await onRecipesChanged()
+                        })
+                      }
+                    >
+                      Make recipe
+                    </Button>
                   </td>
                   <td className="nowrap">
                     {template.origin === 'local' ? (
@@ -279,7 +325,8 @@ function guessPageType(name: string): string {
   return 'npc'
 }
 
-function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefinition[]; onDone: () => Promise<void> }) {
+function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefinition[]; onDone: (recipe: Recipe | null) => Promise<void> }) {
+  const [makeRecipe, setMakeRecipe] = useState(true)
   const listing = useApi<{ templates: LkTemplateListing[]; note: string }>('/api/lk-templates')
   const [choice, setChoice] = useState<Record<string, string>>({})
   const [other, setOther] = useState('')
@@ -287,8 +334,8 @@ function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefini
   const action = useAction()
   const copy = (resource: string, pageType: string) =>
     action.run(async () => {
-      await api.post('/api/templates/copy', { resource, pageType })
-      await onDone()
+      const result = await api.post<{ recipe: Recipe | null }>('/api/templates/copy', { resource, pageType, createRecipe: makeRecipe })
+      await onDone(result.recipe)
     })
   const typeSelect = (value: string, onChange: (v: string) => void, id: string) => (
     <select id={id} aria-label="Page type" value={value} onChange={(e) => onChange(e.target.value)}>
@@ -302,9 +349,12 @@ function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefini
   return (
     <div className="confirm-box" style={{ marginBottom: '1rem' }}>
       <p>
-        Pick a LegendKeeper template and the kind of page it is for. The app reads its layout (this only reads from LegendKeeper) and saves it here as a local template. Then choose
-        that template in a recipe.
+        Pick a LegendKeeper template and the kind of page it is for. The app reads its layout (this only reads from LegendKeeper) and saves it here as a local template.
       </p>
+      <label className="check">
+        <input type="checkbox" checked={makeRecipe} onChange={(e) => setMakeRecipe(e.target.checked)} />
+        <span>Also make a recipe for it (named after the template, with creation after approval switched on)</span>
+      </label>
       <ErrorBox error={listing.error ?? action.error} />
       {listing.loading && <Loading label="Looking for templates in LegendKeeper…" />}
       {listing.data && listing.data.templates.length === 0 && <Empty title="No templates found">You can still use any page as an example, below.</Empty>}

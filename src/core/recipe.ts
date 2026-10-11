@@ -75,7 +75,7 @@ export const RecipeDefinition = z.object({
   /** How to treat missing or uncertain information. Added to the AI rules; never relaxes them. */
   missingInfoRules: z.string().max(4000).default(''),
   /** Whether a draft made with this recipe may be written to LegendKeeper after approval. */
-  allowCreate: z.boolean().default(false),
+  allowCreate: z.boolean().default(true),
   defaultParentId: z.string().max(256).nullable().default(null),
 })
 export type RecipeDefinition = z.infer<typeof RecipeDefinition>
@@ -101,7 +101,7 @@ export const EXAMPLE_RECIPES: RecipeDefinitionInput[] = [
     aiInstructions:
       'Write the Description section in the third person using only facts from the source. Put stated relationships in the Relationships section.',
     missingInfoRules: 'Leave alignment and status missing unless the source states them explicitly.',
-    allowCreate: false,
+    allowCreate: true,
   },
   {
     name: 'Creature statblock',
@@ -114,7 +114,7 @@ export const EXAMPLE_RECIPES: RecipeDefinitionInput[] = [
     aiInstructions:
       'Copy every statistic exactly as written, including modifiers and parenthetical notes. Put each trait, action and reaction as its own paragraph in the matching section, starting with its name.',
     missingInfoRules: 'If a statistic such as a saving throw is absent, mark the field missing. Never calculate or infer it.',
-    allowCreate: false,
+    allowCreate: true,
   },
   {
     name: 'Location gazetteer entry',
@@ -124,6 +124,6 @@ export const EXAMPLE_RECIPES: RecipeDefinitionInput[] = [
     templateId: 'example-location',
     tagPolicy: { mode: 'existing_only', includePageTypeTag: true, maxSuggestions: 6 },
     aiInstructions: 'Keep population figures and dates exactly as written.',
-    allowCreate: false,
+    allowCreate: true,
   },
 ]

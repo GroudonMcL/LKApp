@@ -114,3 +114,20 @@ describe('tag audit', () => {
     expect(overview.tags).toEqual([])
   })
 })
+
+describe('automatic connection test', () => {
+  it('runs once when needed, shares one test between callers, and reuses a recent result', async () => {
+    const { ensureConnectionChecked } = await import('@/server/services/connection')
+    ;(globalThis as Record<symbol, unknown>)[Symbol.for('lk-companion.last-connection-check')] = undefined
+    const ctx = createTestContext()
+    const [a, b] = await Promise.all([ensureConnectionChecked(ctx), ensureConnectionChecked(ctx)])
+    expect(a?.ok).toBe(true)
+    expect(b).toBe(a)
+    expect(ctx.lk.callCount('pingProject')).toBe(1)
+    await ensureConnectionChecked(ctx)
+    expect(ctx.lk.callCount('pingProject')).toBe(1)
+    ctx.clock.now = new Date(ctx.clock.now.getTime() + 11 * 60 * 1000)
+    await ensureConnectionChecked(ctx)
+    expect(ctx.lk.callCount('pingProject')).toBe(2)
+  })
+})

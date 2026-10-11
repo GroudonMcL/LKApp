@@ -55,10 +55,23 @@ describe('guarded single-page creation', () => {
     expect(pageWrites(ctx)).toBe(0)
   })
 
-  it('requires the write check before any draft can be written', async () => {
+  it('needs no separate write check: the first approved page confirms writing works', async () => {
+    await testConnection(ctx)
+    expect(ctx.repos.verifications.latest('proj_test', ctx.sdkVersion)).toBeNull()
+    const view = await readyDraft(ctx)
+    const preview = await prepareWrite(ctx, view.draft.id)
+    const result = await approveWrite(ctx, view.draft.id, { approvalToken: preview.approvalToken, acknowledgeWarnings: true })
+    expect(result.status).toBe('created')
+    expect(pageWrites(ctx)).toBe(1)
+    const verification = ctx.repos.verifications.latest('proj_test', ctx.sdkVersion)
+    expect(verification?.resourceId).toBe(result.status === 'created' ? result.resourceId : null)
+  })
+
+  it('refuses to write when writes are switched off in configuration', async () => {
+    ctx.settings.lk.allowWrites = false
     await testConnection(ctx)
     const view = await readyDraft(ctx)
-    await expect(prepareWrite(ctx, view.draft.id)).rejects.toMatchObject({ issues: expect.arrayContaining([expect.stringMatching(/write check/)]) })
+    await expect(prepareWrite(ctx, view.draft.id)).rejects.toMatchObject({ issues: expect.arrayContaining([expect.stringMatching(/switched off/)]) })
   })
 
   it('the write check creates one clearly named page under the sandbox and reads it back', async () => {

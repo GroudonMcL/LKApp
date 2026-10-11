@@ -1,11 +1,15 @@
 import { handle } from '@/server/http'
-import { connectionSummary, testConnection } from '@/server/services/connection'
+import { connectionSummary, ensureConnectionChecked, testConnection } from '@/server/services/connection'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+/** The connection summary. Tests the connection first when there is no recent result. */
 export async function GET() {
-  return handle((ctx) => connectionSummary(ctx))
+  return handle(async (ctx) => {
+    await ensureConnectionChecked(ctx)
+    return connectionSummary(ctx)
+  })
 }
 
 /** Tests the connection with live, read-only calls. */

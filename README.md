@@ -13,7 +13,7 @@ LegendKeeper's official API and SDK (`@legendkeeper/sdk`).
 
 | Area | What works now |
 | --- | --- |
-| **Connection** | Test your API key, see your project's name and ID, run a one-off *write check*. |
+| **Connection** | Tested automatically (read-only) when you open the app; shows your project's name and ID and whether writing is on. |
 | **Page browser** (read-only) | Scan your project's page list into a local index (metadata only, resumable), filter by name/alias/tag/untagged, open any page to see its documents, sidebar properties, plain text, block structure and version. Live LegendKeeper search. |
 | **Tag audit** (read-only) | All tags with usage counts; pages with no tags. |
 | **Import studio** | Upload `.txt`, `.md` or `.json`, or paste text. Name the import, record the source (title, citation). Long sources are never cut short — split them into sections instead. |
@@ -34,8 +34,9 @@ can be added later (see [Architecture](#architecture)).
   **verified live** against a dedicated LegendKeeper test project: the capability probe
   (27/27 checks), the live integration tests (5/5), and the full browser workflow from
   connection test to a created, read-back page.
-- Page creation still stays **disabled until you run the write check** against *your* project
-  (see [First run](#first-run-step-by-step)) — each project is verified separately.
+- Page creation is **on by default**, but every page still needs your explicit approval of the
+  exact content. The first page you approve in a project is recorded as confirmation that
+  writing works there (no separate test page is needed).
 - The AI path has been tested with scripted (mocked) AI responses only. The first real AI
   transformation happens when you add your Anthropic key.
 
@@ -78,8 +79,8 @@ you can also create or upgrade it explicitly with `npm run db:migrate`.
 | --- | --- | --- |
 | `LEGENDKEEPER_API_KEY` | yes | Your LegendKeeper key (`lk_…`). |
 | `LEGENDKEEPER_BASE_URL` | no | Leave empty for the real LegendKeeper. Set to `http://127.0.0.1:4010` to use the rehearsal server. |
-| `LKC_ALLOW_WRITES` | no | Must be exactly `true` before the app can create anything. Default: off. |
-| `LKC_SANDBOX_PARENT_ID` | for writes | The ID of a page that holds test pages (see below). |
+| `LKC_ALLOW_WRITES` | no | Creating pages (after your approval) is on by default. Set to `false` to make the app read-only. |
+| `LKC_SANDBOX_PARENT_ID` | no | The ID of a page for the optional throwaway write check. |
 | `ANTHROPIC_API_KEY` | for AI | Your Anthropic key (`sk-ant-…`). |
 | `LKC_AI_ENABLED` | no | `false` switches AI off completely. Default: on. |
 | `LKC_AI_MODEL` | no | Claude model. Default: `claude-opus-5-5`. |
@@ -131,17 +132,13 @@ Open <http://127.0.0.1:3000>. The app only accepts connections from your own com
 
 ## First run, step by step
 
-1. **Connection** → *Test connection*. You should see your project name and ID.
+1. Open the app. The connection is tested automatically; the dashboard and **Connection** page show your project name and ID.
 2. **Page browser** → *Scan project*. This copies page names, parents, tags and aliases (no page content) into the local index. You can pause and resume it.
 3. **Tag audit** — see tags and pages without tags.
-4. **Prepare for writing** (optional, when you are ready):
-   1. In LegendKeeper, create an empty page called e.g. *LK Companion Sandbox*. Open it in the page browser and copy its ID.
-   2. In `.env.local` set `LKC_ALLOW_WRITES=true` and `LKC_SANDBOX_PARENT_ID=<that ID>`, then restart.
-   3. **Connection → Write check**: tick the box and run it. It creates one page called "LK Companion write check …" under the sandbox and reads it back. Page creation is enabled only once this passes. The test page stays; delete it in LegendKeeper when you like.
-5. **Recipes** — open an example recipe, adjust it, and (only if you want to write) tick *Allow creation after approval*. Set a *default parent* such as your sandbox page while testing.
-6. **Import studio** → paste text or upload a file, choose the recipe, *Create import*.
-7. *Run AI transformation* (or *Run structural*). Review the draft tab by tab; fix fields, choose links, accept or reject tags; *Save draft*.
-8. *Open final preview* → check everything → tick the confirmation → *Create page*. The result links to the new page and the audit log records it.
+4. **Recipes & templates → Copy from LegendKeeper** — copy your template (e.g. *Statblock*). This also makes a recipe of the same name. Open the recipe and set a *default parent* (where new pages go), e.g. a sandbox page while testing. *Allow creation after approval* is on by default.
+5. **Import studio** → paste text or upload a file, choose the recipe, *Create import*. On the import you can pick a different template (*Lay the page out with*), and you can switch it again while reviewing the draft.
+6. *Run AI transformation* (or *Run structural*). Review the draft tab by tab; fix fields, choose links, accept or reject tags; *Save draft*.
+7. *Open final preview* → check everything → tick the confirmation → *Create page*. The result links to the new page and the audit log records it.
 
 ### Rehearsing safely first
 
@@ -160,7 +157,7 @@ separate `LKC_DATABASE_PATH` (e.g. `./data/rehearsal.db`) so rehearsal data stay
 
 ## How the safety rules work
 
-- **No write without approval.** A finished AI transformation only produces a draft. Creating a page needs: `LKC_ALLOW_WRITES=true`, a passed write check for this project and SDK version, a recipe that allows creation, a draft with no validation errors, a live connection to the expected project, a parent and links that still exist, and your explicit approval of the exact content in the final preview. Editing the draft afterwards cancels the approval.
+- **No write without approval.** A finished AI transformation only produces a draft. Creating a page needs: writes not switched off (`LKC_ALLOW_WRITES`, on by default), a recipe that allows creation (on by default), a draft with no validation errors, a live connection to the expected project, a parent and links that still exist, and your explicit approval of the exact content in the final preview. Editing the draft afterwards cancels the approval.
 - **No duplicates.** Each draft gets its page ID before the first attempt. LegendKeeper refuses a second page with the same ID, and each request carries an idempotency key.
 - **No blind retries.** A write is never retried automatically. If the outcome is uncertain (timeout, lost connection, server error), the app only *reads* to find out whether the page exists, and shows *Check outcome*.
 - **No invented facts.** The AI must mark missing values as missing. The app checks every value the AI calls a source fact: if its quote or its numbers are not in the source, it is marked *uncertain* and not written unless you confirm it. Suggestions are never written unless confirmed.
@@ -222,7 +219,15 @@ your recipe and choose that template. New pages are built from the same blocks:
 The template's own example text is never copied. **What goes where** on the template row shows
 the mapping and a preview. After you change the template in LegendKeeper, press **Refresh**.
 You can also copy the layout of any existing page (paste its id or link), e.g. a finished
-statblock page. LegendKeeper lists templates as resources whose parent is `templates`; that is
+statblock page.
+
+Copying a template also makes a **recipe** with the same name (untick *Also make a recipe* if you
+don't want one), and every template has a **Make recipe** button. The new recipe starts from the
+built-in example for that page type (field aliases, tag and link rules, AI instructions,
+required fields) and uses your template. On each import you can still pick another template for
+the same page type, and switch it while reviewing the draft; the preview updates straight away.
+
+LegendKeeper lists templates as resources whose parent is `templates`; that is
 observed, not documented, so if it ever stops working, use the page-as-example option.
 
 ## Recipes in more detail
@@ -325,7 +330,7 @@ LKC_PROBE=1 npx tsx scripts/probe-legendkeeper.ts   # report in data/probe-repor
 - **One page per import**: a JSON list or a multi-entry source produces one draft; split it first.
 - **Rich text**: the importer understands paragraphs, line breaks, simple bullet lists and `**bold**`. Tables and other Markdown are kept as text.
 - **Existing pages are never modified** in Phase 1, so pages with content the API cannot express (`unsupported` blocks) are always safe.
-- SDK 4.0.0 is very new (version 1.0.0 appeared four days earlier). It is pinned exactly; read the SDK changelog before upgrading and re-run the write check afterwards (the app requires it per SDK version).
+- SDK 4.0.0 is very new (version 1.0.0 appeared four days earlier). It is pinned exactly; read the SDK changelog before upgrading; the first page approved after an upgrade is recorded as confirmation for the new version.
 
 ## Troubleshooting
 

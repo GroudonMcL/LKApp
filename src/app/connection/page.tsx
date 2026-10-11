@@ -24,13 +24,16 @@ export default function ConnectionPage() {
     <>
       <div className="page-header">
         <h1>LegendKeeper connection</h1>
-        <p>All LegendKeeper calls are made by this app’s server using the official SDK. Your browser never sees the API key.</p>
+        <p>
+          All LegendKeeper calls are made by this app’s server using the official SDK. Your browser never sees the API key. The connection is tested automatically (read-only) when
+          you open the app, and again every 10 minutes while you use it.
+        </p>
       </div>
       <ErrorBox error={error} />
       {loading && !data && <Loading />}
       {data && (
         <>
-          <Card title="Connection" actions={<Button variant="primary" onClick={runTest} busy={test.busy} disabled={!data.legendkeeper.keyConfigured}>Test connection</Button>}>
+          <Card title="Connection" actions={<Button variant="primary" onClick={runTest} busy={test.busy} disabled={!data.legendkeeper.keyConfigured}>Test again</Button>}>
             <KeyValue
               rows={[
                 ['API key', data.legendkeeper.keyConfigured ? <Badge tone="good">Configured ({data.legendkeeper.keySource === 'memory' ? 'this session only' : '.env.local'})</Badge> : <Badge tone="bad">Not configured</Badge>],
@@ -79,59 +82,66 @@ function WriteAccess({ summary }: { summary: ConnectionSummary }) {
   return (
     <Card title={<span id="writes">Write access</span>}>
       <p>
-        Phase 1 can create <strong>one page at a time</strong>, only after you approve it. It never edits, moves or deletes existing pages. Writing stays switched off until all of
-        these are true:
+        The app creates <strong>one page at a time</strong>, and only after you approve the exact content in the final preview. It never edits, moves or deletes existing pages.
       </p>
-      <ol>
-        <li>
-          <code>LKC_ALLOW_WRITES=true</code> in <code>.env.local</code> — {writes.allowedByConfig ? <Badge tone="good">yes</Badge> : <Badge tone="warn">no</Badge>}
-        </li>
-        <li>
-          A sandbox page for test pages: <code>LKC_SANDBOX_PARENT_ID</code> — {writes.sandboxParentId ? <code>{writes.sandboxParentId}</code> : <Badge tone="warn">not set</Badge>}
-        </li>
-        <li>
-          The write check below has passed for this project and SDK version —{' '}
-          {writes.verification ? (
-            <>
-              <Badge tone="good">verified {formatDate(writes.verification.verifiedAt)}</Badge> (test page <Link href={`/pages/${writes.verification.resourceId}`}>{writes.verification.resourceId}</Link>)
-            </>
-          ) : (
-            <Badge tone="warn">not verified</Badge>
-          )}
-        </li>
-        <li>The draft’s recipe has “Allow creation after approval” switched on.</li>
-      </ol>
+      <KeyValue
+        rows={[
+          [
+            'Creating pages',
+            writes.allowedByConfig ? (
+              <Badge tone="good">on</Badge>
+            ) : (
+              <>
+                <Badge tone="warn">off</Badge> <span className="small">(<code>LKC_ALLOW_WRITES=false</code> in <code>.env.local</code>; remove it and restart to switch on)</span>
+              </>
+            ),
+          ],
+          [
+            'Confirmed working in this project',
+            writes.verification ? (
+              <>
+                <Badge tone="good">yes, {formatDate(writes.verification.verifiedAt)}</Badge> (page <Link href={`/pages/${writes.verification.resourceId}`}>{writes.verification.resourceId}</Link>)
+              </>
+            ) : (
+              <span className="small">not yet — the first page you approve confirms it</span>
+            ),
+          ],
+          ['Per recipe', 'Each recipe has “Allow creation after approval” (on by default).'],
+        ]}
+      />
 
-      <h3>Write check</h3>
-      <p>
-        The write check creates one page called “LK Companion write check …” under your sandbox page, then reads it back to confirm that what was written is what LegendKeeper
-        stored. The test page is left in place so you can look at it; delete it in LegendKeeper whenever you like. This app never deletes anything.
-      </p>
-      <label className="check">
-        <input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />
-        <span>I understand this creates one test page in my LegendKeeper project, under the sandbox page.</span>
-      </label>
-      <div className="row" style={{ marginTop: '0.5rem' }}>
-        <Button
-          variant="primary"
-          disabled={!confirm || !writes.allowedByConfig || !writes.sandboxParentId}
-          busy={verify.busy}
-          onClick={() =>
-            verify.run(async () => {
-              setResult(await api.post('/api/connection/verify-write', { confirm: true }))
-              setConfirm(false)
-            })
-          }
-        >
-          Run write check
-        </Button>
-        {(!writes.allowedByConfig || !writes.sandboxParentId) && <span className="muted small">Set LKC_ALLOW_WRITES and LKC_SANDBOX_PARENT_ID, then restart the app.</span>}
-      </div>
-      <ErrorBox error={verify.error} title="Write check failed" />
-      {result && (
-        <Notice tone="success">
-          Write check passed. Created <Link href={`/pages/${result.resourceId}`}>{result.name}</Link> under “{result.sandbox.name}” and read it back successfully.
-        </Notice>
+      {writes.sandboxParentId && (
+        <details style={{ marginTop: '0.75rem' }}>
+          <summary>Optional: test with a throwaway page first</summary>
+          <p>
+            Creates one page called “LK Companion write check …” under your sandbox page (<code>{writes.sandboxParentId}</code>) and reads it back. The test page is left in place;
+            delete it in LegendKeeper whenever you like.
+          </p>
+          <label className="check">
+            <input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />
+            <span>I understand this creates one test page in my LegendKeeper project, under the sandbox page.</span>
+          </label>
+          <div className="row" style={{ marginTop: '0.5rem' }}>
+            <Button
+              disabled={!confirm || !writes.allowedByConfig}
+              busy={verify.busy}
+              onClick={() =>
+                verify.run(async () => {
+                  setResult(await api.post('/api/connection/verify-write', { confirm: true }))
+                  setConfirm(false)
+                })
+              }
+            >
+              Run write check
+            </Button>
+          </div>
+          <ErrorBox error={verify.error} title="Write check failed" />
+          {result && (
+            <Notice tone="success">
+              Write check passed. Created <Link href={`/pages/${result.resourceId}`}>{result.name}</Link> under “{result.sandbox.name}” and read it back successfully.
+            </Notice>
+          )}
+        </details>
       )}
     </Card>
   )

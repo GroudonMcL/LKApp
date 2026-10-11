@@ -5,13 +5,15 @@ import { use, useEffect, useState } from 'react'
 import { Badge, Button, Card, ErrorBox, KeyValue, Loading, Notice, formatDate, statusTone, useAction, useApi } from '@/components/ui'
 import { DraftReview } from '@/components/draft-review'
 import { api } from '@/lib/api'
-import type { DraftView, JobDetail } from '@/lib/types'
+import type { DraftView, JobDetail, TemplateWithReport } from '@/lib/types'
 import type { Recipe } from '@/core/recipe'
 
 export default function ImportJobPage({ params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = use(params)
   const jobState = useApi<{ job: JobDetail; draftId: string | null }>(`/api/imports/${encodeURIComponent(jobId)}`)
   const recipes = useApi<{ recipes: Recipe[] }>('/api/recipes')
+  const templates = useApi<{ templates: TemplateWithReport[] }>('/api/templates')
+  const [templateId, setTemplateId] = useState<string>('')
   const [draft, setDraft] = useState<DraftView | null>(null)
   const draftLoad = useAction()
   const transform = useAction()
@@ -31,7 +33,7 @@ export default function ImportJobPage({ params }: { params: Promise<{ jobId: str
   const runTransform = (mode: 'ai' | 'structural') =>
     transform.run(async () => {
       if (draft && !confirm('Re-running replaces the current draft content (the previous version is kept in the draft history). Continue?')) return
-      const view = await api.post<DraftView>(`/api/imports/${jobId}/transform`, { mode, recipeId: recipeId || null })
+      const view = await api.post<DraftView>(`/api/imports/${jobId}/transform`, { mode, recipeId: recipeId || null, templateId: templateId || null })
       const withBlockers = await api.get<DraftView>(`/api/drafts/${view.draft.id}`)
       setDraft(withBlockers)
       await jobState.reload()
@@ -39,6 +41,10 @@ export default function ImportJobPage({ params }: { params: Promise<{ jobId: str
 
   if (jobState.error) return <ErrorBox error={jobState.error} />
   if (!job) return <Loading />
+
+  const recipe = recipes.data?.recipes.find((r) => r.id === recipeId) ?? null
+  const recipeTemplate = recipe?.definition.templateId ? templates.data?.templates.find((t) => t.id === recipe.definition.templateId) : null
+  const templateOptions = recipe ? (templates.data?.templates ?? []).filter((t) => t.definition.pageType === recipe.definition.targetPageType && t.id !== recipe.definition.templateId) : []
 
   const closed = job.status === 'cancelled' || job.status === 'completed'
   const locked = draft ? ['writing', 'write_uncertain', 'created'].includes(draft.draft.status) : false
@@ -79,7 +85,14 @@ export default function ImportJobPage({ params }: { params: Promise<{ jobId: str
           <div className="grid grid-2">
             <div className="field">
               <label htmlFor="recipe">Recipe</label>
-              <select id="recipe" value={recipeId} onChange={(e) => setRecipeId(e.target.value)}>
+              <select
+                id="recipe"
+                value={recipeId}
+                onChange={(e) => {
+                  setRecipeId(e.target.value)
+                  setTemplateId('')
+                }}
+              >
                 <option value="">Choose a recipe…</option>
                 {recipes.data?.recipes.map((r) => (
                   <option key={r.id} value={r.id}>
@@ -90,6 +103,23 @@ export default function ImportJobPage({ params }: { params: Promise<{ jobId: str
               <div className="hint small muted">
                 <Link href="/recipes">Manage recipes</Link>
               </div>
+              {recipe && (
+                <>
+                  <label htmlFor="template" style={{ marginTop: '0.75rem' }}>
+                    Lay the page out with
+                  </label>
+                  <select id="template" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+                    <option value="">{recipeTemplate ? `${recipeTemplate.definition.name} (the recipe’s template)` : 'The recipe’s default layout'}</option>
+                    {templateOptions.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.definition.name}
+                        {t.definition.lkLayout ? ' — from LegendKeeper' : t.origin === 'example' ? ' — example' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="hint small muted">You can also change the layout later, while reviewing the draft.</div>
+                </>
+              )}
             </div>
             <div>
               <p className="small">
