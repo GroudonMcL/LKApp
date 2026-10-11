@@ -8,6 +8,7 @@ import type { PageTypeGuess } from '@/core/extraction'
 import type { IndexedResource } from '@/core/references'
 import { AiCacheRepo, BatchesRepo, BatchItemsRepo, BatchSourcesRepo } from './batch-repositories'
 import { AuditRunsRepo, ContentCacheRepo, FindingsRepo } from './health-repositories'
+import { MigrationBackupsRepo } from './migration-repositories'
 
 const now = () => new Date().toISOString()
 const json = (value: unknown) => JSON.stringify(value)
@@ -123,7 +124,8 @@ export interface ImportJob {
   name: string
   status: JobStatus
   sourceName: string | null
-  sourceKind: 'upload' | 'paste'
+  /** `lk_page`: an existing LegendKeeper page read for a template migration. */
+  sourceKind: 'upload' | 'paste' | 'lk_page'
   sourceFormat: 'text' | 'markdown' | 'json'
   sourceSize: number
   sourceSha256: string
@@ -741,6 +743,7 @@ export interface Repos {
   auditRuns: AuditRunsRepo
   findings: FindingsRepo
   contentCache: ContentCacheRepo
+  migrationBackups: MigrationBackupsRepo
 }
 
 export function createRepos(db: Db): Repos {
@@ -760,5 +763,6 @@ export function createRepos(db: Db): Repos {
     auditRuns: new AuditRunsRepo(db),
     findings: new FindingsRepo(db),
     contentCache: new ContentCacheRepo(db),
+    migrationBackups: new MigrationBackupsRepo(db),
   }
 }

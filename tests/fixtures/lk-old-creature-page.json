@@ -1,0 +1,392 @@
+{
+ "note": "An older-style creature page (5e SRD Aboleth) as LegendKeeper returns it, used by the template migration tests.",
+ "blocks": [
+  {
+   "id": "h4yl0ai2lk3aa278l8sgbror",
+   "kind": "infobox",
+   "layout": "wrapLeft",
+   "width": 19,
+   "rows": [
+    {
+     "id": "u7qmr3zh",
+     "rank": "T",
+     "title": "Overview",
+     "isTitleHidden": true,
+     "kind": "keyValue",
+     "rows": [
+      {
+       "key": "Type",
+       "content": [
+        {
+         "text": "Large Aberration, lawful evil"
+        }
+       ],
+       "text": "Large Aberration, lawful evil",
+       "id": "c66fmuim",
+       "rank": ":"
+      },
+      {
+       "key": "Armor Class",
+       "content": [
+        {
+         "text": "17 (natural armor)"
+        }
+       ],
+       "text": "17 (natural armor)",
+       "id": "m1jrvq2z",
+       "rank": "="
+      },
+      {
+       "key": "Hit Points",
+       "content": [
+        {
+         "text": "135 (18d10+36)"
+        }
+       ],
+       "text": "135 (18d10+36)",
+       "id": "jte6dbst",
+       "rank": "?"
+      },
+      {
+       "key": "Speed",
+       "content": [
+        {
+         "text": "10 ft., swim 40 ft."
+        }
+       ],
+       "text": "10 ft., swim 40 ft.",
+       "id": "j7waxfry",
+       "rank": "B"
+      },
+      {
+       "key": "Challenge",
+       "content": [
+        {
+         "text": "10 (5,900 XP)"
+        }
+       ],
+       "text": "10 (5,900 XP)",
+       "id": "s08rwrp9",
+       "rank": "E"
+      }
+     ]
+    },
+    {
+     "id": "q7o0ghpn",
+     "rank": "Y",
+     "title": "Ability Scores",
+     "isTitleHidden": true,
+     "kind": "keyValue",
+     "rows": [
+      {
+       "key": "STR",
+       "content": [
+        {
+         "text": "21 (+5)"
+        }
+       ],
+       "text": "21 (+5)",
+       "id": "c44h50yb",
+       "rank": "A"
+      },
+      {
+       "key": "DEX",
+       "content": [
+        {
+         "text": "9 (-1)"
+        }
+       ],
+       "text": "9 (-1)",
+       "id": "ni6fuam2",
+       "rank": "D"
+      },
+      {
+       "key": "CON",
+       "content": [
+        {
+         "text": "15 (+2)"
+        }
+       ],
+       "text": "15 (+2)",
+       "id": "cbe02b6i",
+       "rank": "H"
+      },
+      {
+       "key": "INT",
+       "content": [
+        {
+         "text": "18 (+4)"
+        }
+       ],
+       "text": "18 (+4)",
+       "id": "etd5rkvf",
+       "rank": "M"
+      },
+      {
+       "key": "WIS",
+       "content": [
+        {
+         "text": "15 (+2)"
+        }
+       ],
+       "text": "15 (+2)",
+       "id": "t6magprx",
+       "rank": "R"
+      },
+      {
+       "key": "CHA",
+       "content": [
+        {
+         "text": "18 (+4)"
+        }
+       ],
+       "text": "18 (+4)",
+       "id": "urqshq4n",
+       "rank": "T"
+      }
+     ],
+     "display": "grid"
+    },
+    {
+     "id": "b1r0ibpo",
+     "rank": "Z",
+     "title": "Details",
+     "isTitleHidden": true,
+     "kind": "keyValue",
+     "rows": [
+      {
+       "key": "Saving Throws",
+       "content": [
+        {
+         "text": "CON +6, INT +8, WIS +6"
+        }
+       ],
+       "text": "CON +6, INT +8, WIS +6",
+       "id": "rgcuszrw",
+       "rank": "I"
+      },
+      {
+       "key": "Skills",
+       "content": [
+        {
+         "text": "History +12, Perception +10"
+        }
+       ],
+       "text": "History +12, Perception +10",
+       "id": "kiwoen3z",
+       "rank": "M"
+      },
+      {
+       "key": "Senses",
+       "content": [
+        {
+         "text": "darkvision 120 ft., passive Perception 20"
+        }
+       ],
+       "text": "darkvision 120 ft., passive Perception 20",
+       "id": "xvxzf28z",
+       "rank": "N"
+      },
+      {
+       "key": "Languages",
+       "content": [
+        {
+         "text": "Deep Speech, telepathy 120 ft."
+        }
+       ],
+       "text": "Deep Speech, telepathy 120 ft.",
+       "id": "imbhb2st",
+       "rank": "S"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "fou4ak668fmp7i24xvmil92f",
+   "kind": "textField",
+   "title": "Traits",
+   "isTitleHidden": false,
+   "children": [
+    {
+     "id": "xlx6ppoobidew5yuy0bpqhe1",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Amphibious.",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " The aboleth can breathe air and water."
+      }
+     ]
+    },
+    {
+     "id": "xnva3tpez8mfu0q6siw58hqw",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Mucous Cloud.",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " While underwater, the aboleth is surrounded by transformative mucus. A creature that touches the aboleth or that hits it with a melee attack while within 5 ft. of it must make a DC 14 Constitution saving throw. On a failure, the creature is diseased for 1d4 hours. The diseased creature can breathe only underwater."
+      }
+     ]
+    },
+    {
+     "id": "mebuaog69djd3u0jk2hd81zc",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Probing Telepathy.",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " If a creature communicates telepathically with the aboleth, the aboleth learns the creature's greatest desires if the aboleth can see the creature."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "fhpvd8c5d91l3pn8vpmfhnd9",
+   "kind": "textField",
+   "title": "Actions",
+   "isTitleHidden": false,
+   "children": [
+    {
+     "id": "bmshbbz6b4a0xhl34jjzeoc5",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Multiattack.",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " The aboleth makes three tentacle attacks."
+      }
+     ]
+    },
+    {
+     "id": "ylor7wm9raa7ekn3a6n0sov0",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Tentacle.",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " Melee Weapon Attack: +9 to hit, reach 10 ft., one target. Hit: 12 (2d6 + 5) bludgeoning damage. If the target is a creature, it must succeed on a DC 14 Constitution saving throw or become diseased. The disease has no effect for 1 minute and can be removed by any magic that cures disease. After 1 minute, the diseased creature's skin becomes translucent and slimy, the creature can't regain hit points unless it is underwater, and the disease can be removed only by heal or another disease-curing spell of 6th level or higher. When the creature is outside a body of water, it takes 6 (1d12) acid damage every 10 minutes unless moisture is applied to the skin before 10 minutes have passed."
+      }
+     ]
+    },
+    {
+     "id": "z0m8md6n4xsnanyhsjlsbinj",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Tail.",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " Melee Weapon Attack: +9 to hit, reach 10 ft., one target. Hit: 15 (3d6 + 5) bludgeoning damage."
+      }
+     ]
+    },
+    {
+     "id": "vp6p2y6gbsuutd2momzjrnqn",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Enslave (3/day).",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " The aboleth targets one creature it can see within 30 ft. of it. The target must succeed on a DC 14 Wisdom saving throw or be magically charmed by the aboleth until the aboleth dies or until it is on a different plane of existence from the target. The charmed target is under the aboleth's control and can't take reactions, and the aboleth and the target can communicate telepathically with each other over any distance."
+      }
+     ]
+    },
+    {
+     "id": "fbn24133c7podat1gypknh21",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Whenever the charmed target takes damage, the target can repeat the saving throw. On a success, the effect ends. No more than once every 24 hours, the target can also repeat the saving throw when it is at least 1 mile away from the aboleth."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "yn12cnnjtj64yqpigngz2v1f",
+   "kind": "textField",
+   "title": "Legendary Actions",
+   "isTitleHidden": false,
+   "children": [
+    {
+     "id": "uq225ac73tovh2as8mynz778",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "The aboleth can take 3 legendary actions, choosing from the options below. Only one legendary action option can be used at a time and only at the end of another creature's turn. The aboleth regains spent legendary actions at the start of its turn."
+      }
+     ]
+    },
+    {
+     "id": "qcy1pljabf3eoho84w36dfvo",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Detect.",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " The aboleth makes a Wisdom (Perception) check."
+      }
+     ]
+    },
+    {
+     "id": "a3v2jyzel85upwse37buyv17",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Tail Swipe.",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " The aboleth makes one tail attack."
+      }
+     ]
+    },
+    {
+     "id": "zivgh9v83z3yd8pbrpko34yh",
+     "kind": "paragraph",
+     "content": [
+      {
+       "text": "Psychic Drain (Costs 2 Actions).",
+       "bold": true,
+       "italic": true
+      },
+      {
+       "text": " One creature charmed by the aboleth takes 10 (3d6) psychic damage, and the aboleth regains hit points equal to the damage the creature takes."
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "paragraph",
+   "content": []
+  }
+ ]
+}

@@ -35,7 +35,18 @@ export interface TransformOptions {
   templateId?: string | null
   /** Reuse a cached AI result for identical inputs (default true). */
   useCache?: boolean
+  /** `migration`: the source is an existing LegendKeeper page being moved to a new layout. */
+  purpose?: 'import' | 'migration'
 }
+
+/** Added to the recipe's AI instructions when an existing page is migrated to a new layout. */
+export const MIGRATION_AI_INSTRUCTIONS = [
+  'The source is an existing page from this LegendKeeper project, being moved into a new layout.',
+  'Reorganise the existing text; do not rewrite, summarise, correct or extend it.',
+  'Copy sentences, numbers, dice, rules terms and names exactly as written.',
+  'Put text that fits no field or section in unmapped content instead of leaving it out.',
+  'Keep repeated passages, unusual notes and contradictions; mention them in your notes rather than resolving them.',
+].join(' ')
 
 export async function runTransform(ctx: AppContext, jobId: string, options: TransformOptions) {
   const job = ctx.repos.jobs.get(jobId)
@@ -106,6 +117,7 @@ export async function runTransform(ctx: AppContext, jobId: string, options: Tran
           recipe: [recipe.id, recipe.version],
           template: templateRecord ? [templateRecord.id, templateRecord.updatedAt] : null,
           pageType: pageType.id,
+          purpose: options.purpose ?? 'import',
           source: sha256Hex(job.sourceText),
           format: job.sourceFormat,
           name: job.sourceName ?? job.name,
@@ -127,7 +139,10 @@ export async function runTransform(ctx: AppContext, jobId: string, options: Tran
           sourceName: job.sourceName ?? job.name,
           pageType,
           template,
-          recipe: recipe.definition,
+          recipe:
+            options.purpose === 'migration'
+              ? { ...recipe.definition, aiInstructions: `${MIGRATION_AI_INSTRUCTIONS}\n\n${recipe.definition.aiInstructions}`.trim() }
+              : recipe.definition,
           existingTags: tagInfo.tags.slice(0, 300).map((t) => t.tag),
         })
         ctx.repos.aiCache.set(cacheKey, 'transform', response.output, response.servedByModel, response.inputTokens, response.outputTokens)

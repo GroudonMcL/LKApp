@@ -348,6 +348,38 @@ CREATE TABLE lk_content_cache (
 );
 `,
   },
+  {
+    version: 4,
+    name: 'template migration: recovery records (original and proposed page content)',
+    sql: `
+-- Recovery records for template migration. Before a page's content is replaced, the
+-- original blocks (exactly as LegendKeeper returned them, with block ids) and the proposed
+-- blocks are saved here. Rows are never deleted automatically.
+CREATE TABLE migration_backups (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  project_id TEXT,
+  resource_id TEXT NOT NULL,
+  resource_name TEXT NOT NULL,
+  document_id TEXT NOT NULL,
+  original_version TEXT NOT NULL,
+  original_blocks TEXT NOT NULL,
+  original_tags TEXT NOT NULL DEFAULT '[]',
+  proposed_blocks TEXT NOT NULL,
+  proposed_tags TEXT,
+  status TEXT NOT NULL,
+  result_version TEXT,
+  restore_version TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  applied_at TEXT,
+  restored_at TEXT
+);
+CREATE INDEX migration_backups_item ON migration_backups(item_id);
+CREATE INDEX migration_backups_resource ON migration_backups(resource_id);
+`,
+  },
 ]
 
 /** Applies pending migrations in order, each in its own transaction. Returns the versions applied. */

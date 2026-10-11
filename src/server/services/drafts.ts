@@ -57,7 +57,8 @@ export function validationContext(ctx: AppContext, page: CanonicalPage, recipe: 
     pageType: recipe ? resolvePageType(recipe) : null,
     recipe,
     sourceText: job?.sourceText ?? null,
-    sameNamePages: projectId && page.name.trim() ? ctx.repos.index.byExactName(projectId, page.name.trim()) : [],
+    // A migration draft is the page itself, so that page is not a "duplicate" of it.
+    sameNamePages: projectId && page.name.trim() ? ctx.repos.index.byExactName(projectId, page.name.trim()).filter((p) => p.id !== page.migration?.sourceResourceId) : [],
     parentInIndex: projectId && indexAvailable && page.parentId ? ctx.repos.index.get(projectId, page.parentId) !== null : null,
     indexAvailable,
   }

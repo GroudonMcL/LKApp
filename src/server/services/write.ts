@@ -62,6 +62,9 @@ export function draftBlockers(ctx: AppContext, draft: Draft): Blocker[] {
   else if (!recipe.allowCreate) {
     blockers.push({ code: 'RECIPE_NO_CREATE', message: `The recipe “${recipe.name}” does not allow creating pages. Turn on “Allow creation after approval” in the recipe, then re-run or re-validate.` })
   }
+  if (draft.page.migration?.sourceResourceId) {
+    blockers.push({ code: 'MIGRATION_DRAFT', message: 'This draft belongs to a template migration. It updates the existing page and is applied from its migration job; it is never created as a new page.' })
+  }
   if (!['draft', 'awaiting_approval', 'write_failed'].includes(draft.status)) {
     blockers.push({ code: 'BAD_STATUS', message: `A draft in status “${draft.status}” cannot be written.` })
   }

@@ -68,6 +68,19 @@ export const AttributionRules = z.object({
 })
 export type AttributionRules = z.infer<typeof AttributionRules>
 
+/** How a recipe migrates existing pages to its template (Phase 2, template migration). */
+export const MigrationSettings = z.object({
+  /** Old text that fits nowhere in the new layout goes under this heading. It is never dropped. */
+  notesHeading: z.string().trim().min(1).max(120).default('Notes from the previous layout'),
+  /** Blocks kept as they are (images, secrets…) that have no matching section go under this heading. */
+  keptHeading: z.string().trim().min(1).max(120).default('Kept from the previous layout'),
+  /** `keep`: the page's tags are not changed. `add_accepted`: tags you accept in the draft are added (never removed). */
+  tagHandling: z.enum(['keep', 'add_accepted']).default('keep'),
+  /** `keep_all`: links the new layout would lose are added as a link list. `warn`: only reported. */
+  linkHandling: z.enum(['keep_all', 'warn']).default('keep_all'),
+})
+export type MigrationSettings = z.infer<typeof MigrationSettings>
+
 export const RecipeDefinition = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).default(''),
@@ -118,6 +131,7 @@ export const RecipeDefinition = z.object({
    * (nothing is lost). `block`: must be moved or removed by the reviewer before approval.
    */
   unmappedHandling: z.enum(['keep', 'block']).default('keep'),
+  migration: MigrationSettings.default(MigrationSettings.parse({})),
 })
 export type RecipeDefinition = z.infer<typeof RecipeDefinition>
 export type RecipeDefinitionInput = z.input<typeof RecipeDefinition>

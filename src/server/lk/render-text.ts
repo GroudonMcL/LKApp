@@ -1,4 +1,4 @@
-import { bold, br, h, mention, p, ul, type Block, type Run } from '@legendkeeper/sdk/blocks'
+import { bold, br, h, italic, link, mention, p, ul, type Block, type Run } from '@legendkeeper/sdk/blocks'
 import { resolvedReferences, type CanonicalPage } from '@/core/page-model'
 
 /** Shared text helpers for the renderers: paragraphs, bold runs and mention links. */
@@ -27,22 +27,43 @@ export function paragraphBlocks(text: string, targets: Map<string, string>, link
 }
 
 /**
- * Turns one line into runs: `**bold**` becomes bold text, and the first occurrence (per
- * section) of each resolved mention becomes a mention run that keeps the source wording.
+ * Turns one line into runs. Markdown-style markers become formatting: `**bold**`, `*italic*`,
+ * `***both***` and `[text](https://…)` web links. The first occurrence (per section) of each
+ * resolved mention becomes a mention run that keeps the source wording.
  */
 export function inlineRuns(line: string, targets: Map<string, string>, linked: Set<string>): Run[] {
   const runs: Run[] = []
-  const parts = line.split(/(\*\*[^*]+\*\*)/g).filter((part) => part !== '')
+  const parts = line.split(INLINE_MARKUP).filter((part) => part !== '')
   for (const part of parts) {
-    const isBold = /^\*\*[^*]+\*\*$/.test(part)
-    const text = isBold ? part.slice(2, -2) : part
-    const pieces = withMentions(text, targets, linked)
+    const style = styleOf(part)
+    const pieces = style.link ? [style.text] : withMentions(style.text, targets, linked)
     for (const piece of pieces) {
-      if (typeof piece === 'string') runs.push(...(isBold ? bold(piece) : [{ text: piece }]))
-      else runs.push(...mention({ resourceId: piece.resourceId, text: piece.text }))
+      if (typeof piece !== 'string') {
+        runs.push(...mention({ resourceId: piece.resourceId, text: piece.text }))
+        continue
+      }
+      let styled: Run[] = [{ text: piece }]
+      if (style.bold) styled = bold(...styled)
+      if (style.italic) styled = italic(...styled)
+      if (style.link) styled = link(style.link, ...styled)
+      runs.push(...styled)
     }
   }
   return runs.length > 0 ? runs : [{ text: '' }]
+}
+
+const INLINE_MARKUP = /(\*\*\*[^*\n]+?\*\*\*|\*\*[^*\n]+?\*\*|\*[^\s*][^*\n]*?\*|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))/g
+
+function styleOf(part: string): { text: string; bold: boolean; italic: boolean; link: string | null } {
+  let m = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(part)
+  if (m) return { ...styleOf(m[1]!), link: m[2]! }
+  m = /^\*\*\*([^*]+)\*\*\*$/.exec(part)
+  if (m) return { text: m[1]!, bold: true, italic: true, link: null }
+  m = /^\*\*([^*]+)\*\*$/.exec(part)
+  if (m) return { text: m[1]!, bold: true, italic: false, link: null }
+  m = /^\*([^\s*][^*]*)\*$/.exec(part)
+  if (m) return { text: m[1]!, bold: false, italic: true, link: null }
+  return { text: part, bold: false, italic: false, link: null }
 }
 
 function withMentions(text: string, targets: Map<string, string>, linked: Set<string>): (string | { resourceId: string; text: string })[] {

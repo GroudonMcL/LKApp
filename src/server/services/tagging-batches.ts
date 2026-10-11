@@ -21,6 +21,7 @@ import { knownProjectId, requireProjectId } from './connection'
 import { ServiceError } from './errors'
 import { toCsv } from './import-batches'
 import { existingTags } from './tags'
+import { PageScope, selectPages, type IndexedPage } from './page-scope'
 
 /**
  * Tagging assistant batches: suggest, review, approve and apply tags on existing pages.
@@ -49,16 +50,9 @@ export function saveTaxonomy(ctx: AppContext, input: unknown) {
   return { config: parsed.data, revision }
 }
 
-export const TaggingScope = z.object({
-  mode: z.enum(['untagged', 'all', 'page_types', 'folder', 'criteria', 'resources']).default('untagged'),
-  pageTypes: z.array(z.string().max(64)).max(20).default([]),
-  folderId: z.string().max(100).nullable().default(null),
-  tag: z.string().max(100).nullable().default(null),
-  nameContains: z.string().max(200).nullable().default(null),
-  resourceIds: z.array(z.string().max(100)).max(5000).default([]),
-  maxPages: z.number().int().min(1).max(2000).default(200),
-})
-export type TaggingScope = z.infer<typeof TaggingScope>
+/** Which pages a tagging job covers (shared with template migration). */
+export const TaggingScope = PageScope
+export type TaggingScope = PageScope
 
 interface TagPlan {
   before: string[]
@@ -82,45 +76,6 @@ function requireUsable(batch: Batch) {
   if (batch.status === 'completed' || batch.status === 'cancelled') throw new ServiceError(409, `This job is ${batch.status}.`)
   const phase = runningPhase(batch.id)
   if (phase) throw new ServiceError(409, `This job is busy (${phase}).`)
-}
-
-type IndexedPage = ReturnType<AppContext['repos']['index']['forAudit']>[number]
-
-function selectPages(pages: IndexedPage[], scope: TaggingScope): IndexedPage[] {
-  const types = allPageTypes()
-  let selected: IndexedPage[]
-  switch (scope.mode) {
-    case 'untagged':
-      selected = pages.filter((p) => p.tags.length === 0)
-      break
-    case 'page_types':
-      selected = pages.filter((p) => {
-        const type = inferPageType({ id: p.id, name: p.name, parentId: p.parentId, tags: p.tags, ancestors: [], siblingTags: [], linkedNames: [], text: '' }, types)
-        return type !== null && scope.pageTypes.includes(type.type.id)
-      })
-      break
-    case 'folder': {
-      const ids = new Set<string>(scope.folderId ? [scope.folderId] : [])
-      let grew = true
-      while (grew) {
-        grew = false
-        for (const p of pages) if (p.parentId && ids.has(p.parentId) && !ids.has(p.id)) (ids.add(p.id), (grew = true))
-      }
-      selected = pages.filter((p) => ids.has(p.id) && p.id !== scope.folderId)
-      break
-    }
-    case 'criteria':
-      selected = pages.filter((p) => (!scope.tag || p.tags.includes(scope.tag)) && (!scope.nameContains || p.name.toLowerCase().includes(scope.nameContains.toLowerCase())))
-      break
-    case 'resources': {
-      const ids = new Set(scope.resourceIds)
-      selected = pages.filter((p) => ids.has(p.id))
-      break
-    }
-    default:
-      selected = pages
-  }
-  return selected.slice(0, scope.maxPages)
 }
 
 export async function createTaggingBatch(ctx: AppContext, input: unknown) {
