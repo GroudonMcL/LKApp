@@ -402,7 +402,18 @@ your recipe and choose that template. New pages are built from the same blocks:
   blocks in the same style;
 - in statblock sections, each entry's name is bold (“**Nimble Feet.** The goblin …”); only title-like names are bolded, and the wording itself is never changed;
 - the description goes where the template has its placeholder text;
-- fields without a row (e.g. Size, Alignment, Gear) are added to the first or last row group.
+- fields without a row (e.g. Size, Alignment, Gear) are added to the first or last row group;
+- template conventions are followed: `[Spell] Name`-style headings become the page name, other
+  `[Class]`-style placeholders are replaced with it (“Becoming a [Class]” → “Becoming a Tidecaller”),
+  a hidden box whose example text is “Description text” receives the description, a box whose
+  example text starts with a field name (“Holy symbol description”) receives that field, the
+  template's quote slot receives the source's first `> quotation`, and an empty tag-index collection
+  is filled as the template's own note says (e.g. the class name and “Subclass”);
+- example tables and boxes that would be left empty are left out instead of copied as empty frames.
+
+Template rows the built-in page types have no field for (e.g. a god's *Portfolio* or a spell's
+*Casting Time*) are filled once you add those fields to the recipe (*Extra fields*); the
+*What goes where* view shows which rows are matched.
 
 The template's own example text is never copied. **What goes where** on the template row shows
 the mapping and a preview. After you change the template in LegendKeeper, press **Refresh**.
@@ -454,7 +465,7 @@ Historical event. Each keeps game mechanics separate from lore.
 ## Tests
 
 ```sh
-npm test               # 200 unit and contract tests; never touch LegendKeeper or Anthropic
+npm test               # 206 unit and contract tests; never touch LegendKeeper or Anthropic
 npm run typecheck      # TypeScript
 npm run check          # both
 ```
@@ -532,6 +543,7 @@ supported part and saying so on screen.
 - **Page content edits do not change a page's `updatedAt`.** Changes are detected with the document's version instead, which needs reading the page; the audit and the review queue's “changed after an audit” therefore notice name, tag and position changes from the index, and content changes at the next audit.
 - **Blocks the API cannot express** (`unsupported`) cannot be read or created; migrations keep them by sending them back by id, and restore relies on them still being in the page.
 - **Migration**: underline, strikethrough and code formatting and divider lines are not carried over (reported per page); tables are kept as they are rather than turned into fields; only a page's first page document is migrated; text blocks get new block ids (links to a specific block inside the page, if you use them, would need re-pointing).
+- **Links to pages created later**: a page can only link to pages that exist when it is drafted. After importing related pages in several batches, run a template migration on the earlier pages with the same recipe: it adds the new links and changes nothing else (verified live).
 - **Filtering**: the API cannot filter resources by name or tag, and has no backlinks endpoint, so selection, audits and the review queue rely on the local index, which is as fresh as the last scan.
 - **Tag list** needs an ADMIN key; otherwise tags are counted from the index.
 - **Formats**: old Word `.doc`, `.odt`, `.rtf` and spreadsheets are refused with advice. Images and scanned PDFs need AI transcription (on request).

@@ -44,10 +44,34 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
     }
   }
   template.forEach((block) => collect(block, false))
+
+  // Hidden text boxes whose example text names what goes there: "Description text" takes the
+  // description; "Holy symbol description" takes the Holy symbol field.
+  const slots = new Map<AnyBlock, { kind: 'description' } | { kind: 'field'; key: string }>()
+  const findSlots = (block: AnyBlock, depth: number) => {
+    if (block.kind === 'textField' && (block.isTitleHidden === true || depth > 0) && Array.isArray(block.children)) {
+      const children = block.children as AnyBlock[]
+      if (children.length && children.every((child) => child.kind === 'paragraph')) {
+        const text = children.map((child) => headingText(child)).join(' ').trim()
+        if (/^(?:\[[^\]]+\]\s*)?description(?:\s+text)?$/i.test(text)) slots.set(block, { kind: 'description' })
+        else {
+          const field = [...pageType.fields].sort((a, b) => b.label.length - a.label.length).find((f) => norm(text).startsWith(norm(f.label)) && norm(f.label).length >= 4)
+          if (field) slots.set(block, { kind: 'field', key: field.key })
+        }
+      }
+    }
+    for (const key of ['children', 'rows']) {
+      const inner = block[key]
+      if (Array.isArray(inner)) for (const child of inner as AnyBlock[]) if (child && typeof child === 'object') findSlots(child, depth + 1)
+    }
+  }
+  template.forEach((block) => findSlots(block, 0))
+  const slotFields = new Set([...slots.values()].flatMap((slot) => (slot.kind === 'field' ? [slot.key] : [])))
+
   const allRows = [...rowsOf.values()].flat()
   const dedicated = new Set(allRows.filter((row) => row.fieldKeys.length === 1).map((row) => row.fieldKeys[0]!))
   for (const row of allRows) if (row.fieldKeys.length > 1) row.fieldKeys = row.fieldKeys.filter((key) => !dedicated.has(key))
-  const covered = new Set(allRows.flatMap((row) => row.fieldKeys))
+  const covered = new Set([...allRows.flatMap((row) => row.fieldKeys), ...slotFields])
 
   // Fields with no row of their own: those that come before the first covered field (e.g. size,
   // type and alignment) open the first group; the rest close the last group.
@@ -71,7 +95,19 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   }
   const extraRows = (keys: string[]) => keys.map((key) => ({ key: labelOf(key), content: valueRuns(values.get(key)!) }))
 
-  const sections = page.sections.filter((section) => section.paragraphs.some((paragraph) => paragraph.trim() !== ''))
+  let sections = page.sections.filter((section) => section.paragraphs.some((paragraph) => paragraph.trim() !== ''))
+  // A template with a quote slot at the top level gets the source's first quotation there.
+  const isQuote = (paragraph: string) => paragraph.trim() !== '' && paragraph.split('\n').every((line) => /^\s*>/.test(line))
+  let pulledQuote: string | null = null
+  if (template.some((block) => block.kind === 'quote')) {
+    sections = sections.map((section) => {
+      if (pulledQuote !== null || section.kind === 'mechanics') return section
+      const at = section.paragraphs.findIndex(isQuote)
+      if (at === -1) return section
+      pulledQuote = section.paragraphs[at]!
+      return { ...section, paragraphs: section.paragraphs.filter((_, i) => i !== at) }
+    }).filter((section) => section.paragraphs.some((paragraph) => paragraph.trim() !== ''))
+  }
   const placed = new Set<PageSection>()
   // All sections with the block's title, merged (a source can repeat a heading).
   const sectionFor = (title: string): PageSection | undefined => {
@@ -87,6 +123,10 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   }
 
   let nameWritten = false
+  let topIndex = 0
+  // Extra tags named in a template instruction such as "tag the [Class] name and the Subclass tag".
+  const instruction = /tag the \[[^\]]+\] name and the ([\p{L}\p{N} '\-]+?) tag/iu.exec(JSON.stringify(template))
+  const tagIndexExtras = instruction ? [instruction[1]!.trim()] : []
   const fill = (block: AnyBlock, depth: number): AnyBlock | null => {
     switch (block.kind) {
       case 'keyValue': {
@@ -100,16 +140,52 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
         const filled = rows.filter((row) => row.content.length > 0)
         return filled.length ? { ...block, rows: filled } : null
       }
-      case 'heading':
-        if (!nameWritten && block.level === 1) {
+      case 'heading': {
+        const text = headingText(block)
+        // "[Spell] Name", "[Magic Item] Name": the template's slot for the page name.
+        if (/^\s*\[[^\]]+\]\s*name\s*$/i.test(text)) {
           nameWritten = true
           return { ...block, content: [{ text: page.name.trim() }] }
         }
-        return depth === 0 ? block : null
+        // A big heading that opens the page (or sits in the infobox) is the name, unless it is a placeholder.
+        if (!nameWritten && block.level === 1 && (depth > 0 || topIndex === 0) && !/[[@]/.test(text)) {
+          nameWritten = true
+          return { ...block, content: [{ text: page.name.trim() }] }
+        }
+        // "From @Source Link": the template's slot for the source.
+        if (text.includes('@')) {
+          const source = page.sources[0]
+          return source ? { ...block, content: [{ text: `From ${source.title}${source.citation ? ` (${source.citation})` : ''}` }] } : null
+        }
+        // "Becoming a [Class]" → "Becoming a Tidecaller".
+        if (/\[[^\]]+\]/.test(text)) return { ...block, content: [{ text: text.replace(/\[[^\]]+\]/g, page.name.trim()).replace(/\s+/g, ' ').trim() }] }
+        return block
+      }
+      case 'resourceCollection': {
+        // An empty tag index: fill it as the template's own instructions say (e.g. "tag the
+        // [Class] name and the Subclass tag"), or with the page's name.
+        const filter = block.filter as { filterType?: string; tags?: string[] } | undefined
+        if (filter?.filterType === 'tag' && Array.isArray(filter.tags) && filter.tags.length === 0) {
+          return { ...block, filter: { ...filter, tags: [page.name.trim(), ...tagIndexExtras] } }
+        }
+        return block
+      }
       case 'textField': {
         if (depth === 0 && typeof block.title === 'string' && block.isTitleHidden !== true) {
           const section = sectionFor(block.title)
           return section ? { ...block, children: sectionChildren(section) } : null
+        }
+        const slot = slots.get(block)
+        if (slot?.kind === 'field') {
+          const value = values.get(slot.key)
+          return value ? { ...block, children: paragraphBlocks(value, targets, new Set()) } : null
+        }
+        if (slot?.kind === 'description') {
+          const lore = sections.filter((section) => section.kind !== 'mechanics' && !placed.has(section))
+          const chosen = lore.find((section) => norm(section.heading) === 'description') ?? lore[0]
+          if (!chosen) return null
+          placed.add(chosen)
+          return { ...block, children: sectionChildren(chosen) }
         }
         // A text block inside the infobox, or one without a title: keep its structure (the
         // name heading, images, nested key-values) and drop its example text.
@@ -118,14 +194,23 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
       }
       case 'infobox': {
         const rows = fillChildren(block.rows, depth)
-        return rows.length ? { ...block, rows } : null
+        // An infobox left with nothing but headings (its table or fields were empty) goes too.
+        const onlyHeadings = rows.every((row) => row.kind === 'textField' && (row.children as AnyBlock[] | undefined)?.every((child) => child.kind === 'heading'))
+        return rows.length && !onlyHeadings ? { ...block, rows } : null
       }
       case 'image':
         // Layouts copied before empty image slots were dropped may still hold one.
         return isEmptyImage(block) ? null : block
       default: {
         if (depth > 0 && isPlaceholderBlock(block)) return null
-        if (Array.isArray(block.children)) return { ...block, children: fillChildren(block.children, depth) }
+        if (Array.isArray(block.children)) {
+          // A table whose cells were all example text is left out, not kept as an empty grid.
+          if (block.kind === 'table' && !hasText(fillChildren(block.children, depth))) return null
+          const children = fillChildren(block.children, depth)
+          // A layout column the template keeps as an empty spacer stays one (with an empty paragraph).
+          if (block.kind === 'layoutColumn' && children.length === 0) return { ...block, children: [{ kind: 'paragraph', content: [] }] }
+          return { ...block, children }
+        }
         return block
       }
     }
@@ -139,12 +224,20 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   let descriptionAt = -1
   let mechanicsAt = -1
   for (const block of template) {
-    const isName = block.kind === 'heading' && block.level === 1 && !nameWritten
+    const isName = block.kind === 'heading' && !nameWritten && ((block.level === 1 && topIndex === 0 && !/[[@]/.test(headingText(block))) || /^\s*\[[^\]]+\]\s*name\s*$/i.test(headingText(block)))
+    if (block.kind === 'quote' && pulledQuote !== null) {
+      out.push(...(paragraphBlocks(pulledQuote, targets, new Set()) as unknown as AnyBlock[]))
+      pulledQuote = null
+      topIndex++
+      continue
+    }
     if (!isName && isPlaceholderBlock(block)) {
       if (descriptionAt === -1) descriptionAt = out.length
+      topIndex++
       continue
     }
     const filled = fill(block, 0)
+    topIndex++
     if (filled) out.push(filled)
     if (block.kind === 'textField' || block.kind === 'infobox') mechanicsAt = out.length
   }
@@ -191,8 +284,23 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
     else out.push(h(2, 'Related') as unknown as AnyBlock, links(unlinked) as unknown as AnyBlock)
   }
 
+  // A divider that ended up last separated nothing (e.g. before an empty source section).
+  while (out.length && out[out.length - 1]!.kind === 'rule') out.pop()
   if (includeSources) out.push(...(sourcesBlocks(page) as unknown as AnyBlock[]))
   return out as unknown as Block[]
+}
+
+function hasText(blocks: AnyBlock[]): boolean {
+  let found = false
+  walk(blocks as unknown as Block[], (block) => {
+    const content = (block as unknown as AnyBlock).content
+    if (Array.isArray(content) && content.some((run) => typeof (run as { text?: string }).text === 'string' && (run as { text: string }).text.trim() !== '')) found = true
+  })
+  return found
+}
+
+function headingText(block: AnyBlock): string {
+  return ((block.content as { text?: string }[] | undefined) ?? []).map((run) => run.text ?? '').join('')
 }
 
 function contentRuns(block: unknown): { mention?: { resourceId?: string } }[] {

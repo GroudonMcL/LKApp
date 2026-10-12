@@ -148,7 +148,10 @@ describe('import → transform → draft', () => {
     expect(view.draft.page.name).toBe('Hardby')
     expect(fields.population).toMatchObject({ value: '5,100', status: 'source' })
     expect(fields.resources).toMatchObject({ value: 'fish, copper' })
-    expect(view.draft.page.sections[0]!.paragraphs.join('\n')).toContain('ruler: Despotrix Seinna')
+    // Keys named like a field fill it without a mapping; text keys named like a section become it.
+    expect(fields.ruler).toMatchObject({ value: 'Despotrix Seinna', status: 'source' })
+    expect(fields.locationType).toMatchObject({ value: 'City', status: 'source' })
+    expect(view.draft.page.sections.map((s) => [s.heading, s.paragraphs[0]])).toEqual([['Notes', "Ruled by the Gynarch of the Despotrix's council."]])
   })
 
   it('lets the user choose, search and confirm links using only LegendKeeper IDs', async () => {

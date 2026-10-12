@@ -1,4 +1,4 @@
-import { bold, br, h, italic, link, mention, p, ul, type Block, type Run } from '@legendkeeper/sdk/blocks'
+import { bold, br, h, italic, link, mention, p, quote, ul, type Block, type Run } from '@legendkeeper/sdk/blocks'
 import { resolvedReferences, type CanonicalPage } from '@/core/page-model'
 
 /** Shared text helpers for the renderers: paragraphs, bold runs and mention links. */
@@ -13,8 +13,13 @@ export function mentionTargets(page: CanonicalPage): Map<string, string> {
 
 export function paragraphBlocks(text: string, targets: Map<string, string>, linked: Set<string>): Block[] {
   const lines = text.split('\n')
+  // "> A quotation" (Markdown) becomes a quote block.
+  if (lines.every((line) => /^\s*>/.test(line))) {
+    const inner = lines.map((line) => line.replace(/^\s*>\s?/, '')).join('\n')
+    return [quote(...(paragraphBlocks(inner, targets, linked) as [Block, ...Block[]]))]
+  }
   const listItem = /^\s*(?:[-*•]|\d+[.)])\s+/
-  if (lines.length > 1 && lines.every((line) => listItem.test(line))) {
+  if (lines.every((line) => listItem.test(line))) {
     const items = lines.map((line) => inlineRuns(line.replace(listItem, ''), targets, linked))
     return [ul(items[0]!, ...items.slice(1))]
   }

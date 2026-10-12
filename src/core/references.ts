@@ -107,7 +107,14 @@ export class ReferenceIndex {
     }
     if (known.size === 0) return []
     const maxWords = Math.min(8, Math.max(...known.values()))
-    const tokens = text.match(/[\p{L}\p{N}][\p{L}\p{N}'’\-]*/gu) ?? []
+    // Headings and the labels of "Label: value" lines are structure, not mentions ("Type:",
+    // "### History"), so they are not scanned; the values after the labels are.
+    const prose = text
+      .split('\n')
+      .filter((line) => !/^\s*#{1,6}\s/.test(line))
+      .map((line) => line.replace(/^\s*(?:[-*•]\s+)?(?:\*\*)?[\p{L}][\p{L}\p{N} '’/()\-]{0,40}?(?:\*\*)?:(?:\*\*)?\s/u, ''))
+      .join('\n')
+    const tokens = prose.match(/[\p{L}\p{N}][\p{L}\p{N}'’\-]*/gu) ?? []
     const words = tokens.map((token) => token.replace(/['’]s$/u, ''))
     const found: string[] = []
     const seen = new Set<string>()

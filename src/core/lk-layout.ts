@@ -71,7 +71,9 @@ export function skeletonFromBlocks(blocks: unknown[]): { blocks: AnyBlock[]; dro
     if (value && typeof value === 'object') {
       const out: AnyBlock = {}
       for (const [key, inner] of Object.entries(value as AnyBlock)) {
-        if (key === 'id' || key === 'rank') continue
+        // Block and row ids are dropped (new pages get new ones); a collection filter's `id` is
+        // part of the filter itself and is required, so it stays.
+        if ((key === 'id' && (value as AnyBlock).type !== 'filter') || key === 'rank') continue
         out[key] = clean(inner)
       }
       return out

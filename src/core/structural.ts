@@ -25,8 +25,9 @@ export function buildStructuralDraft(ctx: DraftContext, format: 'text' | 'markdo
 
   if (format === 'json') {
     const mapped = applyJsonMappings(fields, ctx.recipe, ctx.sourceJson)
-    fields = mapped.fields
-    sections = jsonLeftovers(ctx.sourceJson, mapped.usedPaths)
+    const auto = matchJsonKeys(mapped.fields, ctx, mapped.usedPaths)
+    fields = auto.fields
+    sections = [...auto.sections, ...jsonLeftovers(ctx.sourceJson, [...mapped.usedPaths, ...auto.usedPaths])]
   } else {
     const result = fromText(ctx, fields, format)
     fields = result.fields
@@ -81,7 +82,11 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
 
   const lines = ctx.sourceText.split('\n')
   const outline = format === 'markdown' ? markdownOutline(ctx.sourceText) : []
-  const h1 = outline.length > 0 && outline[0]!.level === 1 ? outline[0]! : null
+  // The page title: a level-1 heading, or a heading of any level that opens the source and
+  // repeats its name (a record cut from a longer document starts with its own "## Name").
+  const first = outline[0]
+  const opensSource = first !== undefined && ctx.sourceText.slice(0, first.offset).trim() === ''
+  const h1 = first && (first.level === 1 || (opensSource && ctx.sourceTitle !== null && first.heading.trim() === ctx.sourceTitle.trim())) ? first : null
   const sectionLevel = outline.filter((e) => e !== h1).reduce((min, e) => Math.min(min, e.level), 7)
 
   const sections: PageSection[] = []
@@ -133,7 +138,7 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
     }
     const heading = format === 'markdown' ? /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line) : null
     if (heading) {
-      if (h1 && heading[1]!.length === 1 && heading[2] === h1.heading) continue
+      if (h1 && heading[1]!.length === h1.level && heading[2] === h1.heading) continue
       if (heading[1]!.length <= sectionLevel || plainHeading(heading[2]!, STATBLOCK_HEADINGS)) {
         startSection(heading[2]!)
         continue
@@ -149,6 +154,12 @@ function fromText(ctx: DraftContext, initial: PageField[], format: 'text' | 'mar
     const plain = plainHeading(line, headings)
     if (plain) {
       startSection(plain)
+      continue
+    }
+    // Plain text has no heading markers: a short title-like line on its own, after a blank
+    // line and before more text, is a heading ("Becoming a Tidecaller"). Not for statblocks.
+    if (format === 'text' && !fieldIndex.has('size') && looksLikeHeading(lines, index) && matchLabel(line, labels) === null) {
+      startSection(line.trim())
       continue
     }
 
@@ -240,6 +251,57 @@ function toParagraphs(lines: string[]): string[] {
   return out.filter((p) => p !== '')
 }
 
+/**
+ * Without an explicit mapping, a top-level JSON key whose name is a field's key, label or alias
+ * fills that field ("rarity" → Rarity), and a text key named like a section ("description",
+ * "history") becomes that section. Everything else stays in the unsorted section.
+ */
+function matchJsonKeys(fields: PageField[], ctx: DraftContext, usedPaths: string[]): { fields: PageField[]; sections: PageSection[]; usedPaths: string[] } {
+  const object = Array.isArray(ctx.sourceJson) ? ctx.sourceJson[0] : ctx.sourceJson
+  if (!object || typeof object !== 'object') return { fields, sections: [], usedPaths: [] }
+  const n = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  const usedTop = new Set(usedPaths.map((path) => path.split(/[.[]/)[0]))
+  const keys = Object.keys(object as Record<string, unknown>).filter((key) => !usedTop.has(key))
+  const used: string[] = []
+  const next = fields.map((field) => {
+    if (field.status === 'source') return field
+    const definition = ctx.pageType.fields.find((f) => f.key === field.key)
+    const mapping = ctx.recipe.fieldMappings.find((m) => m.fieldKey === field.key)
+    const names = new Set([field.key, field.label, ...(definition?.aliases ?? []), ...(mapping?.labels ?? [])].map(n))
+    const key = keys.find((k) => !used.includes(k) && names.has(n(k)))
+    if (!key) return field
+    const value = jsonValueToText(getByPath(object, key))
+    if (value === null || value.trim() === '') return field
+    used.push(key)
+    return { ...field, value, status: 'source' as const, sourceQuote: value, note: `Copied from the JSON key “${key}” (same name as the field).` }
+  })
+  const sectionNames = new Map([...ctx.template.sections, 'Description', 'History', 'Notes'].map((heading) => [n(heading), heading]))
+  const sections: PageSection[] = []
+  for (const key of keys) {
+    if (used.includes(key)) continue
+    const heading = sectionNames.get(n(key))
+    const value = jsonValueToText(getByPath(object, key))
+    if (!heading || value === null || value.trim() === '') continue
+    used.push(key)
+    sections.push({ id: sectionId(), heading, kind: 'lore', paragraphs: value.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean) })
+  }
+  return { fields: next, sections, usedPaths: used }
+}
+
+function looksLikeHeading(lines: string[], index: number): boolean {
+  const line = lines[index]!.trim()
+  const before = index === 0 ? '' : lines[index - 1]!.trim()
+  const after = lines.slice(index + 1).find((l) => l.trim() !== '')
+  if (before !== '' || after === undefined) return false
+  // The next line is blank or a "Label: value" line; otherwise this is the first line of a paragraph.
+  const next = lines[index + 1]?.trim() ?? ''
+  if (next !== '' && !/^[^:]{1,40}:\s/.test(next)) return false
+  if (line.length < 3 || line.length > 60 || line.split(/\s+/).length > 7) return false
+  if (!/^[\p{Lu}\p{N}]/u.test(line) || /[.,:;!?]$/.test(line) || line.includes(':')) return false
+  if (/^[-*•]|^\d+[.)]\s/.test(line)) return false
+  return true
+}
+
 function jsonLeftovers(json: unknown, usedPaths: string[]): PageSection[] {
   const object = Array.isArray(json) ? json[0] : json
   if (!object || typeof object !== 'object') {
@@ -248,7 +310,7 @@ function jsonLeftovers(json: unknown, usedPaths: string[]): PageSection[] {
   }
   const usedTop = new Set(usedPaths.map((p) => p.split(/[.[]/)[0]))
   const paragraphs = Object.keys(object as Record<string, unknown>)
-    .filter((key) => !usedTop.has(key) && !['name', 'title', 'Name', 'Title'].includes(key))
+    .filter((key) => !usedTop.has(key) && !['name', 'title', 'id'].includes(key.toLowerCase()))
     .map((key) => `${key}: ${jsonValueToText(getByPath(object, key)) ?? ''}`)
   return paragraphs.length ? [{ id: sectionId(), heading: 'Unsorted source material', kind: 'unmapped', paragraphs }] : []
 }

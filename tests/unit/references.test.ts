@@ -83,9 +83,18 @@ describe('reference resolution', () => {
       { id: 'g_ac', name: 'Armor Class', aliases: [], parentId: null, tags: ['Glossary'] },
       { id: 'n_igg', name: 'Iggwilv', aliases: [], parentId: null, tags: ['NPC'] },
     ])
-    const text = 'Armor Class: 12. Apprentice of Iggwilv.'
+    const text = 'Its Armor Class is 12. Apprentice of Iggwilv.'
     expect(tagged.scanText(text)).toEqual(['Armor Class', 'Iggwilv'])
     expect(tagged.scanText(text, [], { excludeTags: ['Glossary'] })).toEqual(['Iggwilv'])
+  })
+
+  it('does not link headings or the labels of “Label: value” lines, only their values', () => {
+    const index = new ReferenceIndex([
+      { id: 'p_type', name: 'Type', aliases: [], parentId: null, tags: [] },
+      { id: 'p_hist', name: 'History', aliases: [], parentId: null, tags: [] },
+      { id: 'n_igg', name: 'Iggwilv', aliases: [], parentId: null, tags: ['NPC'] },
+    ])
+    expect(index.scanText('Type: Fishing town\n### History\nRuler: Iggwilv\n- **Type:** ruin')).toEqual(['Iggwilv'])
   })
 
   it('returns no references without an index', () => {

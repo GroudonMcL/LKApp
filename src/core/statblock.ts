@@ -64,7 +64,9 @@ export function matchLabel(segment: string, labels: LabelEntry[]): { fieldKey: s
     if (entry.allowBare) {
       const bare = new RegExp(`^${escape(entry.label)}\\s+(.+)$`, 'i').exec(text)
       // A bare label must be followed by a value, not prose: "Speed 30 ft." but not "Speed is…".
-      if (bare && text.length <= 200 && !/^(?:is|are|was|were|of|and|or|the|a|an|to|in|on|that|which|it|as|by|for|with)\b/i.test(bare[1]!.trim())) {
+      // Statblocks write "Languages the languages it knew in life", so an article is fine there.
+      const prose = /^languages?$/i.test(entry.label) ? /^(?:is|are|was|were)\b/i : /^(?:is|are|was|were|of|and|or|the|a|an|to|in|on|that|which|it|as|by|for|with)\b/i
+      if (bare && text.length <= 200 && !prose.test(bare[1]!.trim())) {
         return { fieldKey: entry.fieldKey, value: bare[1]!.trim(), label: entry.label }
       }
     }
