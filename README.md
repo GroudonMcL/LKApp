@@ -824,4 +824,5 @@ tests/contract/       real SDK against a local documented-API server
 tests/integration/    optional live tests (opt-in)
 docs/CAPABILITIES.md  API/SDK capability matrix and what was verified live
 docs/PHASE2_REPORT.md Phase 2 starting report, plan and milestone reports
+docs/PHASE3_REPORT.md Phase 3 plan, milestone reports and definition of done
 ```
