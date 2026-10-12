@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { Citation, KnowledgeItemCard, type CitationView, type KnowledgeItemView } from '@/components/knowledge-item'
 import { TimelineWritePanel } from '@/components/timeline-write-panel'
 import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
@@ -95,8 +96,17 @@ const STATUS_LABEL: Record<EntryView['status'], string> = { dated: 'dated', appr
 type Tab = 'timeline' | 'uncertain' | 'conflicts' | 'native' | 'calendars'
 
 export default function ChronologyPage() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <Chronology />
+    </Suspense>
+  )
+}
+
+function Chronology() {
+  const params = useSearchParams()
   const [tab, setTab] = useState<Tab>('timeline')
-  const [filters, setFilters] = useState<Record<string, string>>({ status: 'all', grouping: 'auto' })
+  const [filters, setFilters] = useState<Record<string, string>>(() => ({ status: 'all', grouping: 'auto', ...(params.get('participant') ? { participant: params.get('participant')! } : {}) }))
   const statusForTab = tab === 'uncertain' ? 'uncertain' : tab === 'conflicts' ? 'conflicts' : filters.status
   const query = useMemo(() => {
     const params = new URLSearchParams()

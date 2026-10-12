@@ -9,6 +9,8 @@ const LINKS = [
   { href: '/assistant', label: 'Task Assistant' },
   { href: '/connection', label: 'Connection' },
   { href: '/pages', label: 'Page browser' },
+  { href: '/search', label: 'Search' },
+  { href: '/relationships', label: 'Relationships' },
   { href: '/import', label: 'Import studio' },
   { href: '/batches', label: 'Batch jobs' },
   { href: '/recipes', label: 'Recipes & templates' },

@@ -9,6 +9,8 @@ import { knownProjectId } from './connection'
 import { ServiceError } from './errors'
 import { toCsv } from './import-batches'
 import { listItems } from './knowledge-items'
+import { knowledgeBase } from './knowledge-base'
+import { RELATION_LABELS, SUPPORT_LABELS, buildRelations, textRelations } from '@/core/knowledge/analysis'
 
 /**
  * Exports of chronology and knowledge analysis. Each row carries the resource ids and the
@@ -112,7 +114,45 @@ export function exportKnowledge(ctx: AppContext, params: Record<string, string>,
   return file('knowledge-findings', format, rows, { exportedAt: ctx.now().toISOString(), items: trimmed })
 }
 
-/** Filled in with the relationship browser (Milestone 5). */
-export function exportRelationships(_ctx: AppContext, _params: Record<string, string>, _format: 'csv' | 'json'): { fileName: string; contentType: string; body: string } {
-  throw new ServiceError(404, 'Relationship export is not available yet.')
+/** Every relationship the app knows, with how directly it is supported. */
+export function exportRelationships(ctx: AppContext, params: Record<string, string>, format: 'csv' | 'json') {
+  const projectId = knownProjectId(ctx)
+  if (!projectId) throw new ServiceError(409, 'Connect to LegendKeeper first.')
+  const kb = knowledgeBase(ctx, projectId)
+  const all = new Set(kb.pages.map((p) => p.id))
+  const relations = [...buildRelations(kb.pages), ...textRelations(kb.pages, all)].filter((r) => !params.resourceId || r.from === params.resourceId || r.to === params.resourceId)
+  const accepted = ctx.repos.knowledge.list(projectId, { kinds: ['relationship'], statuses: ['accepted'], limit: 100_000 }).items
+  const decided = new Map(ctx.repos.knowledge.list(projectId, { kinds: ['relationship'], limit: 100_000 }).items.map((i) => [i.key, i.status]))
+  const name = (id: string) => kb.byId.get(id)?.name ?? id
+  const items = [
+    ...relations.map((r) => ({
+      from: { id: r.from, name: name(r.from) },
+      relationship: RELATION_LABELS[r.type],
+      to: { id: r.to, name: name(r.to) },
+      support: r.support,
+      explicit: r.support !== 'text' && r.support !== 'ai',
+      decision: r.support === 'text' ? decided.get(`rel:${r.from}:${r.to}:${r.type}`) ?? 'open' : null,
+      evidence: { ...r.evidence, passage: truncateForDisplay(r.evidence.passage, PASSAGE) },
+    })),
+    ...accepted
+      .filter((i) => i.origin === 'ai')
+      .map((i) => {
+        const d = i.data as { from: string; to: string; type: keyof typeof RELATION_LABELS }
+        return { from: { id: d.from, name: name(d.from) }, relationship: RELATION_LABELS[d.type], to: { id: d.to, name: name(d.to) }, support: 'ai' as const, explicit: false, decision: 'accepted', evidence: { ...i.evidence[0]!, passage: truncateForDisplay(i.evidence[0]?.passage ?? '', PASSAGE) } }
+      }),
+  ]
+  const rows: Row[] = items.map((r) => ({
+    from_id: r.from.id,
+    from: r.from.name,
+    relationship: r.relationship,
+    to_id: r.to.id,
+    to: r.to.name,
+    support: SUPPORT_LABELS[r.support],
+    explicitly_supported: r.explicit ? 'yes' : 'no (suggested)',
+    decision: r.decision,
+    evidence_page_id: r.evidence.resourceId,
+    evidence_field: r.evidence.field,
+    evidence_passage: r.evidence.passage,
+  }))
+  return file(params.resourceId ? `relationships-${params.resourceId}` : 'relationships', format, rows, { exportedAt: ctx.now().toISOString(), note: 'Incoming links are derived by reading pages; LegendKeeper has no backlinks endpoint.', relationships: items })
 }

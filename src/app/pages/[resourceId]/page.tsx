@@ -40,8 +40,16 @@ export default function ResourcePage({ params }: { params: Promise<{ resourceId:
             />
           </Card>
 
+          <Card title="Connections">
+            <p className="small">
+              <Link href={`/relationships?id=${encodeURIComponent(data.resource.id)}`}>Relationship browser</Link> (links in and out, fields, page tree) ·{' '}
+              <Link href={`/chronology?participant=${encodeURIComponent(data.resource.id)}`}>Chronology</Link> ·{' '}
+              <Link href={`/knowledge?tab=link_suggestion`}>Analysis findings</Link>
+            </p>
+          </Card>
+
           <Card title="Documents">
-            <p className="muted small">A resource has one or more documents (tabs). Page documents hold blocks; maps, boards and timelines are shown by type only in Phase 1.</p>
+            <p className="muted small">A resource has one or more documents (tabs). Page documents hold blocks; timelines are read on the Chronology page; maps and boards are shown by type only.</p>
             <ul>
               {data.resource.documents.map((doc) => (
                 <li key={doc.id}>
