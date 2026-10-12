@@ -47,7 +47,7 @@ export default function ImportJobPage({ params }: { params: Promise<{ jobId: str
   const templateOptions = recipe ? (templates.data?.templates ?? []).filter((t) => t.definition.pageType === recipe.definition.targetPageType && t.id !== recipe.definition.templateId) : []
 
   const closed = job.status === 'cancelled' || job.status === 'completed'
-  const locked = draft ? ['writing', 'write_uncertain', 'created'].includes(draft.draft.status) : false
+  const locked = draft ? ['writing', 'write_uncertain', 'write_incomplete', 'created'].includes(draft.draft.status) : false
 
   return (
     <>

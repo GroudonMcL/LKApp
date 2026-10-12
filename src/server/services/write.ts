@@ -7,12 +7,14 @@ import type { AppContext } from '../context'
 import type { Draft } from '../db/repositories'
 import { ConnectorError, toConnectorError } from '../lk/errors'
 import { buildCreatePayload, payloadBytes } from '../lk/render'
-import type { CreatePageInput, CreatedPage } from '../lk/types'
+import type { CreatePageInput, CreatedPage, Placement, ResourceDetail } from '../lk/types'
+import type { RecipeDefinition } from '@/core/recipe'
 import { randomToken, sha256Hex, stableStringify } from '../hash'
 import { recordAudit } from './audit'
 import { knownProjectId } from './connection'
 import { getDraft, recipeForDraft, templateForDraft, validateWithRender } from './drafts'
 import { ServiceError } from './errors'
+import { isLkTemplate } from './lk-templates'
 
 /**
  * Guarded single-page creation.
@@ -34,6 +36,14 @@ import { ServiceError } from './errors'
  * resource with the same ID (409 DUPLICATE_ID), so one draft can never create two pages.
  * A write is never retried automatically. When its outcome is uncertain (timeout, dropped
  * connection, server error), the app only *reads* — it asks whether that ID exists.
+ *
+ * From a LegendKeeper template: when the draft's template was copied from a LegendKeeper
+ * template (and "create from the template itself" is on), the page is created as a copy of
+ * that template (`resources.createFromTemplate`, same planned ID and Idempotency-Key rules),
+ * then filled: its first page tab is replaced (with an If-Match version check, keeping the
+ * template's built-in boxes the API cannot write), and the draft's tags and aliases are added
+ * to the template's. If filling fails, the page exists but is unfinished (`write_incomplete`);
+ * "Finish the page" repeats only the filling steps, which never create anything.
  */
 
 const APPROVAL_TTL_MS = 15 * 60 * 1000
@@ -81,10 +91,25 @@ function renderFor(ctx: AppContext, draft: Draft, page: CanonicalPage, plannedRe
   const pageType = resolvePageType(recipe)
   if (!pageType) throw new ServiceError(400, 'The recipe’s page type is not defined.')
   const { template } = templateForDraft(ctx, pageType, page, recipe)
-  const provisional = buildCreatePayload(page, { pageType, template }, plannedResourceId, 'pending')
+  const provisional: CreatePageInput = buildCreatePayload(page, { pageType, template }, plannedResourceId, 'pending')
+  const layout = template.lkLayout
+  // Only set when used, so content fingerprints of plain pages are unchanged.
+  if (layout?.sourceKind === 'template' && template.createFromLkTemplate) provisional.templateId = layout.sourceResourceId
   const hash = payloadHash(provisional)
   const payload = { ...provisional, idempotencyKey: idempotencyKeyFor('lkc', plannedResourceId, hash.slice(0, 16)) }
   return { payload, hash }
+}
+
+/**
+ * LegendKeeper writes one approved page takes: 1 for a plain page; up to 3 for a page created
+ * from a LegendKeeper template (create, fill, tags and aliases). Batches space records by it.
+ */
+export function writesPerPage(ctx: AppContext, draft: Draft): number {
+  const recipe = recipeForDraft(ctx, draft)
+  const pageType = recipe ? resolvePageType(recipe) : null
+  if (!recipe || !pageType) return 1
+  const { template } = templateForDraft(ctx, pageType, draft.page, recipe)
+  return template.lkLayout?.sourceKind === 'template' && template.createFromLkTemplate ? 3 : 1
 }
 
 // ── Step 1: prepare (final preview) ─────────────────────────────────────────
@@ -182,6 +207,15 @@ async function prepareInternal(ctx: AppContext, draftId: string, options: Prepar
   const warnings = findings.filter((f) => f.severity === 'warning').map((f) => f.message)
   for (const match of sameName) warnings.push(`LegendKeeper search found a page with the same name: ${match.path} (${match.id}).`)
 
+  // Created from a LegendKeeper template: confirm it is still a template and say what it brings.
+  const rendered = renderFor(ctx, draft, page, draft.plannedResourceId ?? 'a0000000000000000000000a')
+  const fromTemplate = rendered.payload.templateId ? await describeTemplate(ctx, rendered.payload.templateId, rendered.payload.blocks) : null
+  const placement = await planPlacement(ctx, recipe, page.parentId, rendered.payload.name).catch((error) => ({
+    placement: null,
+    description: `At the end (the pages beside it could not be read just now: ${toConnectorError(error).message})`,
+  }))
+  const finalTags = mergeLabels(fromTemplate?.tags ?? [], rendered.payload.tags)
+
   if (options.dryRun) {
     // Same checks and the same rendered content as a real preview, but nothing is planned or approved.
     const { payload, hash } = renderFor(ctx, draft, page, draft.plannedResourceId ?? 'a0000000000000000000000a')
@@ -201,6 +235,9 @@ async function prepareInternal(ctx: AppContext, draftId: string, options: Prepar
       bytes: payloadBytes(payload),
       warnings,
       sameName,
+      fromTemplate,
+      placement: placement.description,
+      finalTags,
     }
   }
 
@@ -223,7 +260,7 @@ async function prepareInternal(ctx: AppContext, draftId: string, options: Prepar
     recipeId: draft.recipeId,
     recipeVersion: draft.recipeVersion,
     message: `Final preview for “${page.name}”`,
-    details: { payloadHash: hash.slice(0, 16), bytes: payloadBytes(payload), warnings: warnings.length },
+    details: { payloadHash: hash.slice(0, 16), bytes: payloadBytes(payload), warnings: warnings.length, templateId: payload.templateId ?? null },
   })
 
   return {
@@ -242,6 +279,9 @@ async function prepareInternal(ctx: AppContext, draftId: string, options: Prepar
     bytes: payloadBytes(payload),
     warnings,
     sameName,
+    fromTemplate,
+    placement: placement.description,
+    finalTags,
   }
 }
 
@@ -279,12 +319,244 @@ export async function approveWrite(ctx: AppContext, draftId: string, input: { ap
   const auditBase = { draftId, jobId: draft.jobId, recipeId: draft.recipeId, recipeVersion: draft.recipeVersion, projectId, resourceId: draft.plannedResourceId, model: draft.page.processing?.servedByModel ?? draft.page.processing?.model ?? null }
   recordAudit(ctx, { ...auditBase, operation: 'write.approve', outcome: 'info', approval: 'approved', message: `Approved creation of “${payload.name}”`, details: { payloadHash: hash.slice(0, 16), idempotencyKey: payload.idempotencyKey } })
 
+  // Position among siblings, decided now (read-only). If it cannot be worked out, the page goes last.
+  const placement = await planPlacement(ctx, recipe, payload.parentId, payload.name).catch(() => ({ placement: null, description: 'At the end' }))
+  const anchor = placement.placement?.before ?? placement.placement?.after
+  // The body includes the position, so a different position needs its own Idempotency-Key.
+  const idempotencyKey = anchor ? idempotencyKeyFor(payload.idempotencyKey, anchor) : payload.idempotencyKey
+
   try {
-    const created = await ctx.connector().createPage(payload)
+    if (payload.templateId) {
+      const created = await ctx.connector().createFromTemplate({
+        templateId: payload.templateId,
+        resourceId: payload.resourceId,
+        name: payload.name,
+        parentId: payload.parentId,
+        idempotencyKey,
+        placement: placement.placement,
+      })
+      recordAudit(ctx, { ...auditBase, resourceId: created.id, operation: 'write.create_from_template', outcome: 'success', approval: 'approved', message: `Created “${created.name}” (${created.id}) as a copy of the template ${payload.templateId}`, details: { templateId: payload.templateId, placement: placement.description, idempotencyKey } })
+      return await fillFromTemplate(ctx, draft.id, created.id, payload, auditBase, 'Created from the LegendKeeper template')
+    }
+    const created = await ctx.connector().createPage({ ...payload, idempotencyKey, placement: placement.placement })
     return await finishCreated(ctx, draft.id, created, payload, auditBase, 'Created')
   } catch (error) {
     return await handleWriteFailure(ctx, draft.id, toConnectorError(error), payload, auditBase)
   }
+}
+
+// ── Pages created from a LegendKeeper template ─────────────────────────────
+
+export interface TemplateUse {
+  id: string
+  name: string
+  tabs: { name: string; type: string }[]
+  /** The page tab the draft's content goes into (the template's first page tab). */
+  filledTab: string
+  sidebarProperties: number
+  tags: string[]
+  aliases: string[]
+  /** Built-in boxes of that tab the API cannot write (e.g. the infobox's Tags row); the new page keeps them. */
+  keptBoxes: string[]
+  /** Built-in boxes the draft's layout has no place for; the new page will not have them. */
+  lostBoxes: string[]
+}
+
+/** Reads the template the page will be copied from. Read-only; refuses if it is not a template any more. */
+async function describeTemplate(ctx: AppContext, templateId: string, renderedBlocks: unknown[]): Promise<TemplateUse> {
+  let resource: ResourceDetail
+  try {
+    resource = await ctx.connector().getResource(templateId)
+  } catch (error) {
+    throw new ServiceError(409, `The LegendKeeper template ${templateId} could not be read: ${toConnectorError(error).message} Refresh the template on the Recipes & templates page, or untick “Create pages from the LegendKeeper template itself”.`)
+  }
+  if (!(await isLkTemplate(ctx, resource))) {
+    throw new ServiceError(409, `“${resource.name}” is no longer a LegendKeeper template. Untick “Create pages from the LegendKeeper template itself” for this template, or copy the layout of another template.`)
+  }
+  const tab = firstPageTab(resource)
+  if (!tab) throw new ServiceError(409, `The LegendKeeper template “${resource.name}” has no page tab for the content.`)
+  let boxes = { kept: [] as string[], lost: [] as string[] }
+  try {
+    boxes = keepTemplateBoxes(renderedBlocks, (await ctx.connector().getDocumentContent(resource.id, tab.id)).blocks)
+  } catch {
+    /* advisory */
+  }
+  return {
+    id: resource.id,
+    name: resource.name,
+    tabs: resource.documents.map((d) => ({ name: d.name, type: d.type })),
+    filledTab: tab.name,
+    sidebarProperties: resource.properties.length,
+    tags: resource.tags,
+    aliases: resource.aliases,
+    keptBoxes: boxes.kept,
+    lostBoxes: boxes.lost,
+  }
+}
+
+function firstPageTab(resource: ResourceDetail) {
+  return [...resource.documents].filter((d) => d.type === 'page').sort((a, b) => ((a.rank ?? '') < (b.rank ?? '') ? -1 : (a.rank ?? '') > (b.rank ?? '') ? 1 : 0))[0] ?? null
+}
+
+type AnyBlock = Record<string, unknown>
+type Step = { key: string; index: number }
+const isObject = (value: unknown): value is AnyBlock => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+const boxTitle = (block: AnyBlock) => (typeof block.title === 'string' && block.title ? block.title : 'a box the API cannot show')
+
+/** Every `unsupported` item (built-in boxes such as Tags, also as infobox rows), with where it sits. */
+function findUnsupported(blocks: unknown[]): { path: Step[]; block: AnyBlock; containerKind: string | null }[] {
+  const found: { path: Step[]; block: AnyBlock; containerKind: string | null }[] = []
+  const visit = (items: unknown[], path: Step[], key: string, containerKind: string | null) => {
+    items.forEach((item, index) => {
+      if (!isObject(item)) return
+      const here = [...path, { key, index }]
+      if (item.kind === 'unsupported') return void found.push({ path: here, block: item, containerKind })
+      for (const [childKey, value] of Object.entries(item)) if (Array.isArray(value)) visit(value, here, childKey, typeof item.kind === 'string' ? item.kind : null)
+    })
+  }
+  visit(blocks, [], 'blocks', null)
+  return found
+}
+
+/** The array at `path` (the container of an item), or null when the structure differs there. */
+function containerAt(root: unknown[], path: Step[], kind: string | null): unknown[] | null {
+  let items: unknown[] = root
+  for (let i = 0; i < path.length - 1; i++) {
+    const node = items[path[i]!.index]
+    const next = isObject(node) ? node[path[i + 1]!.key] : undefined
+    if (!Array.isArray(next)) return null
+    if (i === path.length - 2 && kind !== null && (node as AnyBlock).kind !== kind) return null
+    items = next
+  }
+  return items
+}
+
+/** The first array under `key` of a block of this kind, anywhere. */
+function firstContainerOf(root: unknown[], kind: string, key: string): unknown[] | null {
+  for (const item of root) {
+    if (!isObject(item)) continue
+    if (item.kind === kind && Array.isArray(item[key])) return item[key] as unknown[]
+    for (const value of Object.values(item)) {
+      if (!Array.isArray(value)) continue
+      const inner = firstContainerOf(value, kind, key)
+      if (inner) return inner
+    }
+  }
+  return null
+}
+
+/**
+ * The draft's blocks with the template copy's built-in boxes (`unsupported` items such as the
+ * Tags and Aliases rows of an infobox) put back where they were: same container, same position.
+ * LegendKeeper keeps such an item on a replace only when it is sent back with its id; the API
+ * cannot create them. Boxes whose container the draft's layout does not have are reported.
+ */
+export function keepTemplateBoxes(rendered: unknown[], current: unknown[]): { blocks: unknown[]; kept: string[]; lost: string[] } {
+  const out = structuredClone(rendered)
+  const kept: string[] = []
+  const lost: string[] = []
+  for (const { path, block, containerKind } of findUnsupported(current)) {
+    if (!block.id) {
+      lost.push(boxTitle(block))
+      continue
+    }
+    const last = path[path.length - 1]!
+    const target = path.length === 1 ? out : (containerAt(out, path, containerKind) ?? (containerKind ? firstContainerOf(out, containerKind, last.key) : null))
+    if (!target) {
+      lost.push(boxTitle(block))
+      continue
+    }
+    target.splice(Math.min(last.index, target.length), 0, block)
+    kept.push(boxTitle(block))
+  }
+  return { blocks: out, kept, lost }
+}
+
+/** Union, keeping order, ignoring case for duplicates. */
+export function mergeLabels(first: string[], second: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const value of [...first, ...second]) {
+    const key = value.trim().toLowerCase()
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    out.push(value)
+  }
+  return out
+}
+
+/**
+ * Fills a page just created as a copy of a template: replaces its first page tab with the
+ * approved content (version-checked), then adds the draft's tags and aliases. Never creates
+ * anything, so it is safe to repeat. Reads the page back at the end.
+ */
+async function fillFromTemplate(ctx: AppContext, draftId: string, resourceId: string, payload: CreatePageInput, auditBase: AuditBase, label: string) {
+  const connector = ctx.connector()
+  let step = 'reading the new page'
+  try {
+    const resource = await connector.getResource(resourceId)
+    const tab = firstPageTab(resource)
+    if (!tab) throw new Error('The new page has no page tab to fill.')
+    step = 'reading its page tab'
+    const content = await connector.getDocumentContent(resourceId, tab.id)
+    step = 'filling its page tab'
+    const { blocks } = keepTemplateBoxes(payload.blocks, content.blocks)
+    if (stableStringify(content.blocks) !== stableStringify(blocks)) await connector.replaceDocumentBlocks(resourceId, tab.id, blocks, content.version)
+    step = 'adding the tags and aliases'
+    const tags = mergeLabels(resource.tags, payload.tags)
+    const aliases = mergeLabels(resource.aliases, payload.aliases)
+    if (stableStringify(tags) !== stableStringify(resource.tags) || stableStringify(aliases) !== stableStringify(resource.aliases)) await connector.updateResourceLabels(resourceId, { tags, aliases })
+    const created: CreatedPage = { resourceId, name: resource.name, parentId: resource.parentId, tags, documentId: tab.id, documentType: 'page' }
+    return await finishCreated(ctx, draftId, created, { ...payload, tags, aliases }, auditBase, label)
+  } catch (error) {
+    const failure = error instanceof ConnectorError ? error : new ConnectorError('unknown', error instanceof Error ? error.message : String(error), { outcome: 'not_applied' })
+    const message = `The page was created from the template (${resourceId}), but ${step} did not finish: ${failure.message} Nothing else was created. Use “Finish the page” to repeat the remaining steps.`
+    const draft = getDraft(ctx, draftId)
+    ctx.repos.drafts.setStatus(draftId, 'write_incomplete', { writeError: message, createdResourceId: resourceId, page: { ...draft.page, lkResourceId: resourceId } })
+    recordAudit(ctx, { ...auditBase, resourceId, operation: 'write.fill', outcome: 'failure', approval: 'approved', errorCode: failure.details.code ?? failure.kind, requestId: failure.details.requestId ?? null, message })
+    return { status: 'write_incomplete' as const, resourceId, message, issues: failure.details.issues ?? [] }
+  }
+}
+
+/** Repeats the filling steps for a page created from a template whose filling did not finish. */
+export async function finishTemplatePage(ctx: AppContext, draftId: string) {
+  const draft = getDraft(ctx, draftId)
+  if (draft.status !== 'write_incomplete' || !draft.createdResourceId || !draft.plannedResourceId) throw new ServiceError(409, 'There is no unfinished page for this draft.')
+  const { payload, hash } = renderFor(ctx, draft, draft.page, draft.plannedResourceId)
+  if (draft.approvalPayloadHash && hash !== draft.approvalPayloadHash) {
+    throw new ServiceError(409, 'The draft changed after it was approved, so the approved content no longer matches. Undo the change, or finish the page in LegendKeeper by hand.')
+  }
+  const auditBase = { draftId, jobId: draft.jobId, recipeId: draft.recipeId, recipeVersion: draft.recipeVersion, projectId: knownProjectId(ctx), resourceId: draft.createdResourceId, model: null }
+  recordAudit(ctx, { ...auditBase, operation: 'write.fill', outcome: 'info', approval: 'approved', message: 'Finishing a page created from a template' })
+  return fillFromTemplate(ctx, draftId, draft.createdResourceId, payload, auditBase, 'Finished the page created from the template')
+}
+
+// ── Position among siblings ────────────────────────────────────────────────
+
+const byRank = (a: { rank: string | null }, b: { rank: string | null }) => {
+  // LegendKeeper compares ranks as plain strings (not locale order).
+  const x = a.rank ?? '\uffff'
+  const y = b.rank ?? '\uffff'
+  return x < y ? -1 : x > y ? 1 : 0
+}
+
+/**
+ * Where the new page goes. `alphabetical`: before the first sibling (in LegendKeeper's order)
+ * whose name sorts after it; otherwise last. Read-only.
+ */
+export async function planPlacement(ctx: AppContext, recipe: Pick<RecipeDefinition, 'placement'>, parentId: string | null, name: string): Promise<{ placement: Placement | null; description: string }> {
+  if (recipe.placement !== 'alphabetical') return { placement: null, description: 'After the last page beside it' }
+  const siblings: { id: string; name: string; rank: string | null }[] = []
+  let cursor: string | null = null
+  for (let page = 0; page < 30; page++) {
+    const result = await ctx.connector().listResources({ parentId, cursor, limit: 100 })
+    siblings.push(...result.items.filter((item) => (item.parentId ?? null) === parentId))
+    if (!result.hasMore || !result.nextCursor) break
+    cursor = result.nextCursor
+  }
+  siblings.sort(byRank)
+  const next = siblings.find((s) => s.name.localeCompare(name, 'en', { sensitivity: 'base', numeric: true }) > 0)
+  return next ? { placement: { before: next.id }, description: `Alphabetical: before “${next.name}”` } : { placement: null, description: 'Alphabetical: after the last page beside it' }
 }
 
 type AuditBase = { draftId: string; jobId: string; recipeId: string | null; recipeVersion: number | null; projectId: string | null; resourceId: string | null; model: string | null }
@@ -297,6 +569,7 @@ async function handleWriteFailure(ctx: AppContext, draftId: string, failure: Con
     // Find out by reading — never by writing again.
     const existence = await checkExists(ctx, payload.resourceId)
     if (existence.exists && existence.created) {
+      if (payload.templateId) return fillFromTemplate(ctx, draftId, payload.resourceId, payload, auditBase, 'Created from the LegendKeeper template (confirmed after an uncertain reply)')
       return finishCreated(ctx, draftId, existence.created, payload, auditBase, 'Created (confirmed after an uncertain reply)')
     }
     if (existence.exists === false && failure.kind !== 'duplicate_id') {
@@ -409,6 +682,15 @@ export async function checkOutcome(ctx: AppContext, draftId: string) {
   const existence = await checkExists(ctx, draft.plannedResourceId)
   const auditBase = { draftId, jobId: draft.jobId, recipeId: draft.recipeId, recipeVersion: draft.recipeVersion, projectId: knownProjectId(ctx), resourceId: draft.plannedResourceId, model: null }
   if (existence.exists && existence.created) {
+    const planned = recipeForDraft(ctx, draft) ? renderFor(ctx, draft, draft.page, draft.plannedResourceId).payload : null
+    if (planned?.templateId) {
+      // Created from a template: whether it was filled is not known, and filling is a write, so
+      // leave that to "Finish the page".
+      const message = `The page exists (${draft.plannedResourceId}): it was created from the template. Use “Finish the page” to make sure its content, tags and aliases were filled.`
+      ctx.repos.drafts.setStatus(draftId, 'write_incomplete', { writeError: message, createdResourceId: draft.plannedResourceId })
+      recordAudit(ctx, { ...auditBase, operation: 'write.check_outcome', outcome: 'info', message })
+      return { status: 'write_incomplete' as const, resourceId: draft.plannedResourceId, message }
+    }
     const recipe = recipeForDraft(ctx, draft)
     const pageType = recipe ? resolvePageType(recipe) : null
     const payload: CreatePageInput =

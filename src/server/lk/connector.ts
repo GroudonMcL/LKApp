@@ -1,4 +1,5 @@
 import type {
+  CreateFromTemplateInput,
   CreatePageInput,
   CreatedPage,
   DocumentContent,
@@ -6,6 +7,7 @@ import type {
   LkCalendarInfo,
   ProjectInfo,
   ResourceDetail,
+  SaveAsTemplateInput,
   ResourcePage,
   SearchHit,
   TagCount,
@@ -19,9 +21,10 @@ import type {
  *
  * - All authenticated LegendKeeper calls go through an implementation of this interface,
  *   on the server only. UI code never sees the SDK or the API key.
- * - Deliberately narrow: read operations plus four writes — create one page, replace a
- *   resource's tag list, replace one page's content (always with a version check), and add
- *   one event to an existing timeline (with an event id chosen before the write).
+ * - Deliberately narrow: read operations plus these writes — create one page (plain, or as a
+ *   copy of a LegendKeeper template), save one page as a template, replace a resource's tags
+ *   and aliases, replace one page's content (always with a version check), and add one event
+ *   to an existing timeline. Every create uses an id chosen before the write.
  *   There is no move, delete or merge here, so the rest of the app cannot perform one even
  *   by mistake. Writes are never retried automatically.
  * - Tests use an in-memory implementation; production uses `SdkConnector`.
@@ -31,6 +34,8 @@ export interface LegendKeeperConnector {
   /** A live project read, bypassing any client-side caching. Used to confirm the connection. */
   pingProject(projectId: string): Promise<ProjectInfo>
   listResources(options: { cursor?: string | null; limit?: number; parentId?: string | null }): Promise<ResourcePage>
+  /** The project's templates at any depth (`templates.list`, SDK 4.1.0). */
+  listTemplates(options: { cursor?: string | null; limit?: number }): Promise<ResourcePage>
   getResource(resourceId: string): Promise<ResourceDetail>
   getDocumentContent(resourceId: string, documentId: string): Promise<DocumentContent>
   /** Every tag with its usage count. Requires an ADMIN key. */
@@ -43,6 +48,19 @@ export interface LegendKeeperConnector {
    * version check for resource updates, so callers read the tags right before and merge.
    */
   updateResourceTags(resourceId: string, tags: string[]): Promise<{ tags: string[]; updatedAt: string | null }>
+  /** Replaces a resource's tags and aliases together (same caveat: no version check). */
+  updateResourceLabels(resourceId: string, labels: { tags: string[]; aliases: string[] }): Promise<{ tags: string[]; aliases: string[] }>
+  /**
+   * Creates one resource as a copy of a template (`resources.createFromTemplate`): the
+   * template's fields, sidebar properties and documents with their content, under new ids.
+   * Never retried automatically. Returns the new resource as read in the reply.
+   */
+  createFromTemplate(input: CreateFromTemplateInput): Promise<ResourceDetail>
+  /**
+   * Copies a resource (and optionally its descendants) into a new top-level template
+   * (`resources.saveAsTemplate`). The resource itself does not change. Project admins only.
+   */
+  saveAsTemplate(input: SaveAsTemplateInput): Promise<ResourceDetail>
   /**
    * Replaces one page document's blocks, only if it is still at `ifMatch` (otherwise
    * `version_conflict`, nothing written). Returns the new version.

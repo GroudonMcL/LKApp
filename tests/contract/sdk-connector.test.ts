@@ -97,6 +97,20 @@ beforeAll(async () => {
       if (!found) return send(res, 404, error('NOT_FOUND', 'Resource not found'))
       return send(res, 200, { ...found, permissions: {}, documents: found.documents.map((d) => ({ ...d, rank: 'a0', isHidden: false })), properties: [{ kind: 'keyValue', id: 'p1', title: 'Facts', rows: [{ id: 'r1', rank: 'a0', key: 'Ruler', content: [{ text: 'Iuz' }], text: 'Iuz' }] }] })
     }
+    if (req.method === 'GET' && path === `${base}/templates`) {
+      return send(res, 200, { data: [{ ...resources[0], id: 'tpl00001', name: 'NPC Template', parentId: 'templates' }, { ...resources[1], id: 'tpl00002', name: 'Sub Template', parentId: 'tpl00001' }], hasMore: false, nextCursor: null })
+    }
+    const fullResource = (id: string, name: string, parentId: string | null) => ({ id, name, parentId, tags: ['NPC'], aliases: [], rank: 'a9', isHidden: false, permissions: {}, documents: [{ id: 'doccopy', name: 'Main', type: 'page', rank: 'a0', isHidden: false }], properties: [] })
+    if (req.method === 'POST' && path === `${base}/resources/from-template`) {
+      if (createMode === '503') return send(res, 503, error('INTERNAL', 'Unavailable'))
+      const body = requests.at(-1)!.body as { id: string; name: string; parentId?: string }
+      return send(res, 201, fullResource(body.id, body.name, body.parentId ?? null))
+    }
+    const saveMatch = /^\/api\/v3\/projects\/[^/]+\/resources\/([^/]+)\/save-as-template$/.exec(path)
+    if (req.method === 'POST' && saveMatch) {
+      const body = requests.at(-1)!.body as { id: string; name: string }
+      return send(res, 201, fullResource(body.id, body.name, 'templates'))
+    }
     if (req.method === 'POST' && path === `${base}/resources`) {
       if (createMode === '503') return send(res, 503, error('INTERNAL', 'Unavailable'))
       if (createMode === 'invalid') return send(res, 400, { ...error('INVALID_CONTENT', 'The editor cannot hold it'), errors: [{ path: 'documents[0].blocks[0]', message: 'bad' }] })
@@ -221,5 +235,50 @@ describe('SdkConnector against a local server that follows the documented API', 
     const put = requests.find((r) => r.method === 'PUT')!
     expect(validateAgainstSpec('DocumentBlocksWrite', put.body).valid).toBe(true)
     await expect(lk.replaceDocumentBlocks('res1aaaaa', 'doc1', [p('New')], 'ver-6')).rejects.toMatchObject({ kind: 'version_conflict', details: { outcome: 'not_applied' } })
+  })
+
+  it('lists templates at any depth', async () => {
+    const page = await connector().listTemplates({ limit: 100 })
+    expect(page.items.map((t) => [t.id, t.parentId])).toEqual([['tpl00001', 'templates'], ['tpl00002', 'tpl00001']])
+    expect(requests.at(-1)!.path).toBe(`/api/v3/projects/${PROJECT.id}/templates?limit=100`)
+  })
+
+  it('creates a page from a template with the planned id, an Idempotency-Key, a position, and a schema-valid body', async () => {
+    const created = await connector().createFromTemplate({ templateId: 'tpl00001', resourceId: 'abcdefghijklmnopqrstuvwx', name: 'Elvera', parentId: 'res0aaaaa', idempotencyKey: 'lkc.abc.def', placement: { before: 'res2aaaaa' } })
+    expect(created).toMatchObject({ id: 'abcdefghijklmnopqrstuvwx', name: 'Elvera', parentId: 'res0aaaaa' })
+    const post = requests.find((r) => r.method === 'POST')!
+    expect(post.path).toBe(`/api/v3/projects/${PROJECT.id}/resources/from-template`)
+    expect(post.headers['idempotency-key']).toBe('lkc.abc.def')
+    expect(post.body).toEqual({ templateId: 'tpl00001', id: 'abcdefghijklmnopqrstuvwx', name: 'Elvera', parentId: 'res0aaaaa', before: 'res2aaaaa' })
+    expect(validateAgainstSpec('ResourceFromTemplateParams', post.body)).toEqual({ valid: true, errors: [] })
+  })
+
+  it('never retries a create from a template', async () => {
+    createMode = '503'
+    await expect(connector().createFromTemplate({ templateId: 'tpl00001', resourceId: 'abcdefghijklmnopqrstuvwx', name: 'X', parentId: null, idempotencyKey: 'k' })).rejects.toMatchObject({ kind: 'server', details: { outcome: 'unknown' } })
+    expect(requests.filter((r) => r.method === 'POST')).toHaveLength(1)
+  })
+
+  it('saves a page as a template with a schema-valid body', async () => {
+    const saved = await connector().saveAsTemplate({ resourceId: 'res1aaaaa', templateId: 'tplnewaaaaaaaaaaaaaaaaaa', name: 'Resource 1 Template', includeChildren: true, idempotencyKey: 'lkc-tpl.x' })
+    expect(saved).toMatchObject({ id: 'tplnewaaaaaaaaaaaaaaaaaa', parentId: 'templates' })
+    const post = requests.find((r) => r.method === 'POST')!
+    expect(post.path).toBe(`/api/v3/projects/${PROJECT.id}/resources/res1aaaaa/save-as-template`)
+    expect(post.headers['idempotency-key']).toBe('lkc-tpl.x')
+    expect(validateAgainstSpec('ResourceSaveAsTemplateParams', post.body)).toEqual({ valid: true, errors: [] })
+  })
+
+  it('updates tags and aliases together with a schema-valid body', async () => {
+    await connector().updateResourceLabels('res1aaaaa', { tags: ['NPC'], aliases: ['R1'] })
+    const patch = requests.find((r) => r.method === 'PATCH')!
+    expect(patch.body).toEqual({ tags: ['NPC'], aliases: ['R1'] })
+    expect(validateAgainstSpec('ResourceUpdateParams', patch.body).valid).toBe(true)
+  })
+
+  it('sends a position for plain pages too', async () => {
+    await connector().createPage({ resourceId: 'abcdefghijklmnopqrstuvwx', name: 'X', parentId: 'res0aaaaa', tags: [], aliases: [], documentName: 'Main', blocks: [p('x')], idempotencyKey: 'k2', placement: { after: 'res1aaaaa' } })
+    const post = requests.find((r) => r.method === 'POST')!
+    expect(post.body).toMatchObject({ after: 'res1aaaaa' })
+    expect(validateAgainstSpec('ResourceCreateParams', post.body).valid).toBe(true)
   })
 })

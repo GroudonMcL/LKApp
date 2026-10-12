@@ -147,10 +147,11 @@ function IndexBrowser() {
                       <Link href={`/pages/${item.id}`}>{item.name}</Link>
                       {item.aliases.length > 0 && <div className="muted small">aka {item.aliases.join(', ')}</div>}
                       {item.isHidden && <Badge>hidden</Badge>}
+                      {item.isTemplate && <Badge tone="info" title="A LegendKeeper template (or inside one). Templates are left out of Wiki Health, tagging, links and analysis.">template</Badge>}
                     </td>
-                    <td>{item.tags.length ? <div className="pill-list">{item.tags.map((t) => <Badge key={t}>{t}</Badge>)}</div> : <Badge tone="warn">no tags</Badge>}</td>
+                    <td>{item.tags.length ? <div className="pill-list">{item.tags.map((t) => <Badge key={t}>{t}</Badge>)}</div> : item.isTemplate ? <span className="muted small">—</span> : <Badge tone="warn">no tags</Badge>}</td>
                     <td className="small">{item.documents.map((d) => `${d.name} (${d.type})`).join(', ')}</td>
-                    <td className="small">{item.parentId ? <Link href={`/pages/${item.parentId}`}>{item.parentId}</Link> : <span className="muted">top level</span>}</td>
+                    <td className="small">{item.parentId === 'templates' ? <span className="muted">templates</span> : item.parentId ? <Link href={`/pages/${item.parentId}`}>{item.parentId}</Link> : <span className="muted">top level</span>}</td>
                     <td>
                       <code className="small">{item.id}</code>
                     </td>

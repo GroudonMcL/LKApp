@@ -188,3 +188,76 @@ describe.skipIf(!writeEnabled)('live LegendKeeper — Phase 3 timeline event wri
     }
   })
 })
+
+describe.skipIf(!enabled)('live LegendKeeper — templates (read-only)', () => {
+  it('lists templates at any depth; each sits under “templates” or under another template', async () => {
+    const page = await connector().listTemplates({ limit: 100 })
+    const ids = new Set(page.items.map((t) => t.id))
+    for (const template of page.items) expect(template.parentId === 'templates' || ids.has(template.parentId ?? '')).toBe(true)
+    console.info(`Templates: ${page.items.map((t) => `${t.name}${t.parentId === 'templates' ? '' : ' (nested)'}`).join(', ') || 'none'}`)
+  })
+})
+
+describe.skipIf(!writeEnabled)('live LegendKeeper — page from a template, under the sandbox (SDK 4.1.0)', () => {
+  it('creates a copy of a template with a planned id, refuses a duplicate, fills its first tab keeping built-in boxes, and places a page beside it', async () => {
+    const { keepTemplateBoxes } = await import('@/server/services/write')
+    const { skeletonFromBlocks } = await import('@/core/lk-layout')
+    const lk = connector()
+    const sandbox = process.env.LKC_SANDBOX_PARENT_ID!
+    // The template whose first page tab has the most built-in boxes the API cannot write (e.g. infobox Tags rows).
+    const countBoxes = (value: unknown): number =>
+      Array.isArray(value) ? value.reduce((n: number, v) => n + countBoxes(v), 0) : value && typeof value === 'object' ? ((value as { kind?: string }).kind === 'unsupported' ? 1 : Object.values(value).reduce((n: number, v) => n + countBoxes(v), 0)) : 0
+    const templates = (await lk.listTemplates({ limit: 100 })).items.filter((t) => t.documents.some((d) => d.type === 'page'))
+    if (!templates.length) return console.info('No template with a page tab; skipped.')
+    let chosen = templates[0]!
+    let best = -1
+    for (const t of templates) {
+      const doc = t.documents.find((d) => d.type === 'page')!
+      const boxes = countBoxes((await lk.getDocumentContent(t.id, doc.id)).blocks)
+      if (boxes > best) [chosen, best] = [t, boxes]
+    }
+    const template = await lk.getResource(chosen.id)
+
+    const resourceId = newLkResourceId()
+    const name = `${TEST_PREFIX} from template ${new Date().toISOString()}`
+    const input = { templateId: template.id, resourceId, name, parentId: sandbox, idempotencyKey: idempotencyKeyFor('lkc-it-tpl', resourceId) }
+    const created = await lk.createFromTemplate(input)
+    expect(created).toMatchObject({ id: resourceId, name, parentId: sandbox })
+    expect(created.documents.map((d) => d.type)).toEqual(template.documents.map((d) => d.type))
+    // Same planned id with a fresh key: LegendKeeper refuses a second copy.
+    await expect(lk.createFromTemplate({ ...input, idempotencyKey: `${input.idempotencyKey}.again` })).rejects.toMatchObject({ kind: 'duplicate_id' })
+
+    const tab = [...created.documents].filter((d) => d.type === 'page').sort((a, b) => ((a.rank ?? '') < (b.rank ?? '') ? -1 : 1))[0]!
+    const before = await lk.getDocumentContent(resourceId, tab.id)
+    const boxesBefore = countBoxes(before.blocks)
+    // As the app does: the copied layout (built-in boxes removed, as the API cannot write them)
+    // plus a marker, then the copy's boxes sent back by id in their places.
+    const marker = 'Filled by the LK Companion integration test.'
+    const { blocks: skeleton } = skeletonFromBlocks(before.blocks)
+    const filled = keepTemplateBoxes([...skeleton, p(marker)], before.blocks)
+    expect(filled.lost).toEqual([])
+    await lk.replaceDocumentBlocks(resourceId, tab.id, filled.blocks, before.version)
+    const after = await lk.getDocumentContent(resourceId, tab.id)
+    expect(after.text).toContain(marker)
+    expect(countBoxes(after.blocks)).toBe(boxesBefore)
+    console.info(`Template “${template.name}”: ${template.documents.length} tab(s), ${template.properties.length} sidebar propert(ies); built-in boxes kept after filling: ${filled.kept.join(', ') || 'none'}.`)
+
+    const labels = await lk.updateResourceLabels(resourceId, { tags: [...created.tags, 'LKC integration test'], aliases: ['LKC template test'] })
+    expect(labels.tags).toContain('LKC integration test')
+    expect(labels.aliases).toEqual(['LKC template test'])
+
+    // A plain page placed directly before the copy.
+    const plainId = newLkResourceId()
+    await lk.createPage({ resourceId: plainId, name: `${TEST_PREFIX} placed before ${new Date().toISOString()}`, parentId: sandbox, tags: [], aliases: [], documentName: 'Main', blocks: [p('Placement test.')], idempotencyKey: idempotencyKeyFor('lkc-it-place', plainId), placement: { before: resourceId } })
+    const siblings: { id: string; rank: string | null }[] = []
+    let cursor: string | null = null
+    do {
+      const page = await lk.listResources({ parentId: sandbox, cursor, limit: 100 })
+      siblings.push(...page.items)
+      cursor = page.hasMore ? page.nextCursor : null
+    } while (cursor)
+    const order = siblings.sort((a, b) => ((a.rank ?? '') < (b.rank ?? '') ? -1 : (a.rank ?? '') > (b.rank ?? '') ? 1 : 0)).map((s) => s.id)
+    expect(order.indexOf(plainId)).toBe(order.indexOf(resourceId) - 1)
+    console.info(`Left ${resourceId} (${name}) and ${plainId} under the sandbox.`)
+  })
+})

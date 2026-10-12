@@ -180,7 +180,7 @@ export function formatDate(value: string | null | undefined): string {
 export function statusTone(status: string): 'neutral' | 'good' | 'warn' | 'bad' | 'info' {
   if (['created', 'completed', 'success', 'existing', 'resolved', 'source', 'user'].includes(status)) return 'good'
   if (['failed', 'write_failed', 'failure', 'error', 'rejected', 'blocked', 'ambiguous'].includes(status)) return 'bad'
-  if (['write_uncertain', 'uncertain', 'warning', 'new', 'suggested', 'awaiting_approval', 'interrupted', 'paused', 'case_variant'].includes(status)) return 'warn'
+  if (['write_uncertain', 'write_incomplete', 'uncertain', 'warning', 'new', 'suggested', 'awaiting_approval', 'interrupted', 'paused', 'case_variant'].includes(status)) return 'warn'
   if (['running', 'transforming', 'writing', 'info', 'drafted'].includes(status)) return 'info'
   return 'neutral'
 }

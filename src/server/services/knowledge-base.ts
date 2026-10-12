@@ -2,7 +2,6 @@ import 'server-only'
 import { pageTypeForTags } from '@/core/audit-checks'
 import type { KbPage } from '@/core/chronology/entries'
 import { entityKindFor } from '@/core/knowledge/entities'
-import { LK_TEMPLATES_PARENT_ID } from '@/core/lk-layout'
 import { allPageTypes, resolvePageType } from '@/core/resolve'
 import type { AppContext } from '../context'
 
@@ -15,7 +14,7 @@ import type { AppContext } from '../context'
  * project that covers, so screens can say what their findings rest on.
  */
 export function knowledgeBase(ctx: AppContext, projectId: string) {
-  const indexed = ctx.repos.index.forAudit(projectId).filter((p) => p.id !== LK_TEMPLATES_PARENT_ID && p.parentId !== LK_TEMPLATES_PARENT_ID)
+  const indexed = ctx.repos.index.forAudit(projectId)
   const byId = new Map(indexed.map((p) => [p.id, p]))
   const content = new Map(ctx.repos.contentCache.all(projectId).map((c) => [c.resourceId, c]))
   const customTypes = ctx.repos.recipes

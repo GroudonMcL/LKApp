@@ -263,7 +263,11 @@ export class JobsRepo {
 
 // ── Drafts ────────────────────────────────────────────────────────────────────
 
-export type DraftStatus = 'draft' | 'awaiting_approval' | 'writing' | 'created' | 'write_failed' | 'write_uncertain' | 'cancelled'
+/**
+ * `write_incomplete`: the page was created as a copy of a LegendKeeper template, but filling it
+ * (content, tags, aliases) did not finish. The page exists; "Finish the page" completes it.
+ */
+export type DraftStatus = 'draft' | 'awaiting_approval' | 'writing' | 'created' | 'write_failed' | 'write_uncertain' | 'write_incomplete' | 'cancelled'
 
 export interface Draft {
   id: string
@@ -516,6 +520,8 @@ export interface IndexedResourceRow {
   rank: string | null
   updatedAt: string | null
   scannedAt: string
+  /** Under LegendKeeper's templates root, at any depth. Templates are not wiki pages. */
+  isTemplate: boolean
 }
 
 export interface ScanRecord {
@@ -533,12 +539,12 @@ export interface ScanRecord {
 
 interface IndexRow {
   id: string; name: string; parent_id: string | null; tags: string; aliases: string; documents: string; icon_glyph: string | null
-  is_hidden: number; rank: string | null; updated_at: string | null; scanned_at: string
+  is_hidden: number; rank: string | null; updated_at: string | null; scanned_at: string; is_template: number
 }
 const toIndexed = (row: IndexRow): IndexedResourceRow => ({
   id: row.id, name: row.name, parentId: row.parent_id, tags: JSON.parse(row.tags), aliases: JSON.parse(row.aliases),
   documents: JSON.parse(row.documents), iconGlyph: row.icon_glyph, isHidden: row.is_hidden === 1, rank: row.rank,
-  updatedAt: row.updated_at, scannedAt: row.scanned_at,
+  updatedAt: row.updated_at, scannedAt: row.scanned_at, isTemplate: row.is_template === 1,
 })
 
 interface ScanRow { id: string; project_id: string; status: ScanRecord['status']; cursor: string | null; pages: number; resources: number; error: string | null; started_at: string; updated_at: string; finished_at: string | null }
@@ -550,7 +556,7 @@ const toScan = (row: ScanRow): ScanRecord => ({
 export class IndexRepo {
   constructor(private readonly db: Db) {}
 
-  upsertPage(projectId: string, scanId: string, items: Omit<IndexedResourceRow, 'scannedAt'>[], cursor: string | null) {
+  upsertPage(projectId: string, scanId: string, items: Omit<IndexedResourceRow, 'scannedAt' | 'isTemplate'>[], cursor: string | null) {
     const at = now()
     const upsert = this.db.prepare(
       `INSERT INTO lk_index_resources (project_id, id, name, name_lower, parent_id, tags, tag_count, aliases, documents, icon_glyph, is_hidden, rank, updated_at, scan_id, scanned_at)
@@ -571,7 +577,30 @@ export class IndexRepo {
       this.db
         .prepare('UPDATE lk_index_scans SET cursor = ?, pages = pages + 1, resources = resources + ?, updated_at = ? WHERE id = ?')
         .run(cursor, items.length, at, scanId)
+      this.markTemplates(projectId)
     })()
+  }
+
+  /**
+   * Marks LegendKeeper templates: resources whose parent is the virtual root "templates", and
+   * everything under them (documented in API v3: a resource under a template is a template).
+   */
+  markTemplates(projectId: string) {
+    this.db
+      .prepare(
+        `UPDATE lk_index_resources SET is_template = CASE WHEN id IN (
+           WITH RECURSIVE t(id) AS (
+             SELECT id FROM lk_index_resources WHERE project_id = @projectId AND parent_id = '${LK_TEMPLATES_PARENT_ID}'
+             UNION SELECT r.id FROM lk_index_resources r JOIN t ON r.parent_id = t.id WHERE r.project_id = @projectId
+           ) SELECT id FROM t) THEN 1 ELSE 0 END
+         WHERE project_id = @projectId`,
+      )
+      .run({ projectId })
+  }
+
+  /** Every indexed template, for the templates list when LegendKeeper cannot be reached. */
+  templates(projectId: string): IndexedResourceRow[] {
+    return (this.db.prepare('SELECT * FROM lk_index_resources WHERE project_id = ? AND is_template = 1 ORDER BY name_lower').all(projectId) as IndexRow[]).map(toIndexed)
   }
 
   /** After a complete scan, drops entries that no longer exist in LegendKeeper. */
@@ -579,7 +608,7 @@ export class IndexRepo {
     return this.db.prepare('DELETE FROM lk_index_resources WHERE project_id = ? AND scan_id != ?').run(projectId, scanId).changes
   }
 
-  query(projectId: string, filter: { q?: string; tag?: string; untagged?: boolean; parentId?: string | null; offset: number; limit: number }) {
+  query(projectId: string, filter: { q?: string; tag?: string; untagged?: boolean; parentId?: string | null; templates?: 'include' | 'exclude' | 'only'; offset: number; limit: number }) {
     const clauses = ['project_id = @projectId']
     const params: Record<string, unknown> = { projectId, limit: filter.limit, offset: filter.offset }
     if (filter.q) {
@@ -591,8 +620,10 @@ export class IndexRepo {
       clauses.push('EXISTS (SELECT 1 FROM json_each(tags) WHERE value = @tag)')
       params.tag = filter.tag
     }
-    // LegendKeeper templates are listed under the parent "templates"; they are not pages to tag.
-    if (filter.untagged) clauses.push(`tag_count = 0 AND (parent_id IS NULL OR parent_id != '${LK_TEMPLATES_PARENT_ID}')`)
+    // LegendKeeper templates (at any depth) are not pages to tag.
+    if (filter.untagged) clauses.push('tag_count = 0 AND is_template = 0')
+    if (filter.templates === 'exclude') clauses.push('is_template = 0')
+    if (filter.templates === 'only') clauses.push('is_template = 1')
     if (filter.parentId !== undefined) {
       if (filter.parentId === null) clauses.push('parent_id IS NULL')
       else {
@@ -617,15 +648,15 @@ export class IndexRepo {
 
   stats(projectId: string) {
     const counts = this.db
-      .prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN parent_id IS NULL OR parent_id != '${LK_TEMPLATES_PARENT_ID}' THEN 1 ELSE 0 END) AS pages, SUM(CASE WHEN tag_count = 0 AND (parent_id IS NULL OR parent_id != '${LK_TEMPLATES_PARENT_ID}') THEN 1 ELSE 0 END) AS untagged FROM lk_index_resources WHERE project_id = ?`)
-      .get(projectId) as { total: number; pages: number | null; untagged: number | null }
+      .prepare('SELECT COUNT(*) AS total, SUM(CASE WHEN is_template = 0 THEN 1 ELSE 0 END) AS pages, SUM(CASE WHEN tag_count = 0 AND is_template = 0 THEN 1 ELSE 0 END) AS untagged, SUM(is_template) AS templates FROM lk_index_resources WHERE project_id = ?')
+      .get(projectId) as { total: number; pages: number | null; untagged: number | null; templates: number | null }
     const tags = (this.db.prepare('SELECT COUNT(DISTINCT value) AS n FROM lk_index_resources, json_each(tags) WHERE project_id = ?').get(projectId) as { n: number }).n
-    return { total: counts.total, pages: counts.pages ?? 0, untagged: counts.untagged ?? 0, distinctTags: tags }
+    return { total: counts.total, pages: counts.pages ?? 0, untagged: counts.untagged ?? 0, templates: counts.templates ?? 0, distinctTags: tags }
   }
 
   tagCounts(projectId: string): { tag: string; count: number }[] {
     return this.db
-      .prepare(`SELECT value AS tag, COUNT(*) AS count FROM lk_index_resources, json_each(tags) WHERE project_id = ? AND (parent_id IS NULL OR parent_id != '${LK_TEMPLATES_PARENT_ID}') GROUP BY value ORDER BY count DESC, value`)
+      .prepare('SELECT value AS tag, COUNT(*) AS count FROM lk_index_resources, json_each(tags) WHERE project_id = ? AND is_template = 0 GROUP BY value ORDER BY count DESC, value')
       .all(projectId) as { tag: string; count: number }[]
   }
 
@@ -643,13 +674,13 @@ export class IndexRepo {
       }
       return names.length ? names.join(' / ') : null
     }
-    return rows.filter((row) => row.parentId !== LK_TEMPLATES_PARENT_ID).map((row) => ({ ...row, path: pathOf(row) }))
+    return rows.filter((row) => !row.isTemplate).map((row) => ({ ...row, path: pathOf(row) }))
   }
 
   /** Every indexed resource with a readable path, for reference resolution. */
   forReferences(projectId: string): IndexedResource[] {
-    const rows = this.db.prepare('SELECT id, name, parent_id, aliases, tags FROM lk_index_resources WHERE project_id = ?').all(projectId) as {
-      id: string; name: string; parent_id: string | null; aliases: string; tags: string
+    const rows = this.db.prepare('SELECT id, name, parent_id, aliases, tags, is_template FROM lk_index_resources WHERE project_id = ?').all(projectId) as {
+      id: string; name: string; parent_id: string | null; aliases: string; tags: string; is_template: number
     }[]
     const byId = new Map(rows.map((row) => [row.id, row]))
     const pathOf = (row: { parent_id: string | null }): string | null => {
@@ -662,9 +693,9 @@ export class IndexRepo {
       }
       return names.length ? names.join(' / ') : null
     }
-    // Templates are listed like pages (with the parent "templates") but are not pages to link to.
+    // Templates (at any depth) are listed like pages but are not pages to link to.
     return rows
-      .filter((row) => row.parent_id !== LK_TEMPLATES_PARENT_ID)
+      .filter((row) => row.is_template === 0)
       .map((row) => ({ id: row.id, name: row.name, aliases: JSON.parse(row.aliases), parentId: row.parent_id, path: pathOf(row), tags: JSON.parse(row.tags) as string[] }))
   }
 

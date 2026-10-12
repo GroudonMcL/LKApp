@@ -25,7 +25,7 @@ import { getDraft } from './drafts'
 import { ServiceError } from './errors'
 import { cancelImport } from './imports'
 import { runTransform, type TransformMode } from './transform'
-import { approveWrite, checkOutcome, dryRunWrite, prepareWrite } from './write'
+import { approveWrite, checkOutcome, dryRunWrite, prepareWrite, writesPerPage } from './write'
 
 /**
  * Batch import: many files, many records, one reviewable job.
@@ -769,7 +769,9 @@ export async function runBatch(ctx: AppContext, batchId: string, input: { wait?:
       if (cancelRequested(ctx, batchId)) break
       const outcome = await runItem(ctx, item, parents)
       counts[outcome]++
-      if (index < approved.length - 1) await sleep(BATCH_TIMING.writeSpacingMs)
+      // Pages created from a LegendKeeper template take up to 3 writes: keep under 120 writes a minute.
+      const draft = item.jobId ? ctx.repos.drafts.getByJob(item.jobId) : null
+      if (index < approved.length - 1) await sleep(BATCH_TIMING.writeSpacingMs * (draft ? writesPerPage(ctx, draft) : 1))
     }
     recordAudit(ctx, {
       operation: 'batch.run',
@@ -827,6 +829,11 @@ async function runItem(ctx: AppContext, item: BatchItem, parents: Map<string, bo
       ctx.repos.batchItems.update(item.id, { status: 'needs_reconciliation', error: result.message, attempts: item.attempts + 1, result: { stage: 'write' } })
       return 'uncertain'
     }
+    if (result.status === 'write_incomplete') {
+      // The page exists (created from its template); only filling it is left, on the record's page.
+      ctx.repos.batchItems.update(item.id, { status: 'failed', resourceId: result.resourceId, error: result.message, attempts: item.attempts + 1, result: { stage: 'write', incomplete: true } })
+      return 'failed'
+    }
     ctx.repos.batchItems.update(item.id, { status: 'failed', error: [result.message, ...(result.issues ?? []).map((i) => `${(i as { path?: string }).path ?? ''}: ${(i as { message?: string }).message ?? ''}`)].join(' '), attempts: item.attempts + 1, result: { stage: 'write' } })
     return 'failed'
   } catch (error) {
@@ -849,6 +856,7 @@ async function reconcileItem(ctx: AppContext, item: BatchItem) {
   try {
     const outcome = await checkOutcome(ctx, draft.id)
     if (outcome.status === 'created' && 'resourceId' in outcome) ctx.repos.batchItems.update(item.id, { status: 'succeeded', resourceId: outcome.resourceId, error: null, result: { stage: 'write', reconciled: true } })
+    else if (outcome.status === 'write_incomplete') ctx.repos.batchItems.update(item.id, { status: 'failed', resourceId: outcome.resourceId, error: outcome.message, result: { stage: 'write', reconciled: true, incomplete: true } })
     else if (outcome.status === 'write_failed') ctx.repos.batchItems.update(item.id, { status: 'failed', error: `${outcome.message}`, result: { stage: 'write', reconciled: true } })
     else ctx.repos.batchItems.update(item.id, { error: outcome.message })
   } catch (error) {

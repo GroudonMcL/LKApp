@@ -4,7 +4,10 @@ import { plainText, walk, type Block, type PropertyBlock } from '@legendkeeper/s
 import type { LegendKeeperConnector } from './connector'
 import { toConnectorError } from './errors'
 import type {
+  CreateFromTemplateInput,
   CreateTimelineEventInput,
+  Placement,
+  SaveAsTemplateInput,
   LkCalendarInfo,
   TimelineDocumentInfo,
   TimelineEventDate,
@@ -88,6 +91,16 @@ export class SdkConnector implements LegendKeeperConnector {
     })
   }
 
+  async listTemplates(options: { cursor?: string | null; limit?: number }): Promise<ResourcePage> {
+    return this.call(async () => {
+      const page = await this.reader.templates.list({
+        limit: Math.min(Math.max(options.limit ?? 50, 1), 100),
+        ...(options.cursor ? { cursor: options.cursor } : {}),
+      })
+      return { items: page.data.map(toSummary), nextCursor: page.nextCursor, hasMore: page.hasMore }
+    })
+  }
+
   async getResource(resourceId: string): Promise<ResourceDetail> {
     return this.call(async () => toDetail(await this.reader.resources.get({ resourceId })))
   }
@@ -137,6 +150,7 @@ export class SdkConnector implements LegendKeeperConnector {
         tags: input.tags,
         aliases: input.aliases,
         documents: [{ type: 'page', name: input.documentName, blocks: input.blocks as Block[] }],
+        ...placementOf(input.placement),
         idempotencyKey: input.idempotencyKey,
       })
       const document = created.documents[0]
@@ -156,6 +170,39 @@ export class SdkConnector implements LegendKeeperConnector {
       const updated = await this.writer.resources.update({ resourceId }, { tags })
       return { tags: updated.tags, updatedAt: updated.updatedAt ?? null }
     })
+  }
+
+  async updateResourceLabels(resourceId: string, labels: { tags: string[]; aliases: string[] }): Promise<{ tags: string[]; aliases: string[] }> {
+    return this.call(async () => {
+      const updated = await this.writer.resources.update({ resourceId }, { tags: labels.tags, aliases: labels.aliases })
+      return { tags: updated.tags, aliases: updated.aliases }
+    })
+  }
+
+  async createFromTemplate(input: CreateFromTemplateInput): Promise<ResourceDetail> {
+    return this.call(async () =>
+      toDetail(
+        await this.writer.resources.createFromTemplate({
+          templateId: input.templateId,
+          id: input.resourceId,
+          name: input.name,
+          ...(input.parentId ? { parentId: input.parentId } : {}),
+          ...placementOf(input.placement),
+          idempotencyKey: input.idempotencyKey,
+        }),
+      ),
+    )
+  }
+
+  async saveAsTemplate(input: SaveAsTemplateInput): Promise<ResourceDetail> {
+    return this.call(async () =>
+      toDetail(
+        await this.writer.resources.saveAsTemplate(
+          { resourceId: input.resourceId },
+          { id: input.templateId, name: input.name, includeChildren: input.includeChildren, idempotencyKey: input.idempotencyKey },
+        ),
+      ),
+    )
   }
 
   async replaceDocumentBlocks(resourceId: string, documentId: string, blocks: unknown[], ifMatch: string): Promise<{ version: string }> {
@@ -226,6 +273,12 @@ export class SdkConnector implements LegendKeeperConnector {
       return toEvent(created, input.resourceId, input.documentId)
     })
   }
+}
+
+function placementOf(placement: Placement | null | undefined): Placement {
+  if (placement?.after) return { after: placement.after }
+  if (placement?.before) return { before: placement.before }
+  return {}
 }
 
 function isExternal(item: { sourceUri?: string; isExternal?: boolean }, resourceId: string, documentId: string): boolean {

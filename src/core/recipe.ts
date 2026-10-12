@@ -105,6 +105,12 @@ export const RecipeDefinition = z.object({
   /** Whether a draft made with this recipe may be written to LegendKeeper after approval. */
   allowCreate: z.boolean().default(true),
   defaultParentId: z.string().max(256).nullable().default(null),
+  /**
+   * Where a new page goes among the pages beside it: `end` (LegendKeeper's default, after the
+   * last one) or `alphabetical` (before the first page whose name sorts after it, in
+   * LegendKeeper's order).
+   */
+  placement: z.enum(['end', 'alphabetical']).default('end'),
 
   // ── Batch settings (Phase 2). All optional; older recipes get these defaults. ──
   /** How one source document is split into records. */

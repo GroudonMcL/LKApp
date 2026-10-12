@@ -127,7 +127,7 @@ export function listImports(ctx: AppContext, page: number, pageSize: number) {
 export function cancelImport(ctx: AppContext, id: string) {
   const job = getImport(ctx, id)
   const draft = ctx.repos.drafts.getByJob(id)
-  if (draft && ['writing', 'write_uncertain'].includes(draft.status)) {
+  if (draft && ['writing', 'write_uncertain', 'write_incomplete'].includes(draft.status)) {
     throw new ServiceError(409, 'A write for this draft is in progress or its outcome is unknown. Check the outcome first.')
   }
   if (job.status === 'completed') throw new ServiceError(409, 'This import is already completed.')

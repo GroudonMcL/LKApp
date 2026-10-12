@@ -1,6 +1,8 @@
 # LegendKeeper integration: capability matrix
 
-Investigated against **`@legendkeeper/sdk` 4.0.0** (published 2026-10-10), its bundled
+Investigated against **`@legendkeeper/sdk` 4.0.0** (published 2026-10-10), updated for
+**4.1.0** (published 2026-10-12 with LegendKeeper's *Foundations Vol. 3*; its only change is
+templates, see *Templates (SDK 4.1.0)* below), its bundled
 `GUIDE.md`, `STYLE.md`, `README.md`, `CHANGELOG.md` and **OpenAPI 3.1 spec (API v3)**, plus the
 SDK's TypeScript declarations. These ship inside the npm package and are the same official
 documentation as <https://www.legendkeeper.com/developers/>.
@@ -18,6 +20,11 @@ documentation as <https://www.legendkeeper.com/developers/>.
 > (*spec*) and the real SDK is tested against a local documented-API server (*contract*).
 > AI: the OpenRouter free-model provider was exercised live on 12 Oct 2026 (see *AI provider:
 > OpenRouter* below); the Claude provider has not been (no Anthropic key was available).
+>
+> **Templates, SDK 4.1.0 (12 Oct 2026)**: templates listed live (7, one nested); a page created
+> through the app as a copy of the *Statblock* template under the sandbox, filled, and read back
+> (sidebar Tags box, icon, infobox Tags/Aliases rows kept; placed alphabetically); duplicate copy
+> refused; placement before a sibling confirmed. Saving as a template: spec and contract only.
 >
 > **Phase 3 (12 Oct 2026)**: timelines and calendars read live; one timeline event added in
 > the sandbox and read back; integration tests 8/8. See *Phase 3* below.
@@ -49,7 +56,7 @@ documentation as <https://www.legendkeeper.com/developers/>.
 
 Legend — **Verified**: *live* = against the real LegendKeeper test project; *spec* = validated against the OpenAPI schema; *contract* = real SDK against a local server following the docs; *rehearsal* = full UI run against the rehearsal server.
 
-| Capability | API (v3) | SDK 4.0.0 | Role / plan | Used by the app | Verified | Limitations / notes |
+| Capability | API (v3) | SDK 4.1.0 | Role / plan | Used by the app | Verified | Limitations / notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | Project identity & connection | `GET /projects`, `GET /projects/{id}` | `lk.project()`, `projects.list/get` | Paid plan | Yes — connection test (`project()` + fresh `projects.get`) | **live**, contract | `lk.project()` is cached per client, so the app pings with `projects.get` to prove the connection is live. |
 | Resource listing & pagination | `GET /resources?limit&cursor&parentId` | `resources.list` → `Page` | Member (sees only reachable, non-hidden) | Yes — background scan, live browsing | **live** (235 pages, 3 pages of 100), contract | Max 100 per page; **no server-side filter by name or tag** → the app keeps a local metadata index. Cursor is opaque. |
@@ -63,12 +70,15 @@ Legend — **Verified**: *live* = against the real LegendKeeper test project; *s
 | Delete / restore | `DELETE /resources/{id}`, `…/restore` | `resources.delete/restore` | Edit rights; restore needs Admin | **No — never used by the app** | **live** (probe: delete, restore, `HAS_CHILDREN`, cascade cleanup) | Only the opt-in integration test cleanup deletes, and only its own test page. |
 | Tags: listing | `GET /tags` | `tags.list` | **Admin** | Yes — tag audit, suggestions | **live** (24 tags), contract | Member keys get `403`; the app falls back to tags counted from the local index and says so. |
 | Tags: updating | via `resources.update` / `resources.create` | yes | edit rights | On create, and the tagging assistant | **live**, spec | No dedicated tag endpoint. Tags match **exactly, including case**. A tag exists only while a page carries it, so “approving a new tag” means approving that text on a page. |
-| Hierarchy / parents | `parentId` on list/create; `POST …/move` | `resources.move` | edit rights | Parent on create; tree in browser | **live** | Siblings ordered by `rank` (compare as plain strings). |
+| Hierarchy / parents | `parentId` on list/create; `POST …/move` | `resources.move` | edit rights | Parent on create; tree in browser; **position on create** (`after`/`before`: recipe option “alphabetical”) | **live** | Siblings ordered by `rank` (compare as plain strings). |
 | Search | `GET /search?q&limit` | `search.search` | Member (reachable only) | Yes — live search, manual link lookup, duplicate check | **live**, contract | One page, ≤100 results; matches names, aliases and content. **A resource appears once per matching document** — the app de-duplicates. |
 | References / backlinks | mention runs in blocks; `links`/collection blocks; collection filter `scope: 'edges'` | `mention()`, `links()`, `collection()` | — | Mentions + `links` property on create; outgoing links read for the audit (broken links) and kept by migrations; **Phase 3:** relationship browser, references report, unlinked mentions | **live** (mentions read back with the target's current `name`; the audit found links to pages missing from the project) | **No endpoint lists backlinks directly**; incoming links are derived by reading every page's outgoing links (only as complete as the audits), and the app says so wherever it shows them. |
 | Sidebar properties | `…/properties[/{id}][/rows]` | `properties.*` | edit rights for writes | Read only (page detail) | **live** (probe: create + list) | Row writes take `ifMatch`. Style guide prefers an **infobox** over sidebar properties for single-page wikis. |
 | Infobox / property blocks | infobox block + `…/blocks/{id}/properties` | `infobox()`, `property()`, `keyValue()`, `blocks.*Property*` | edit rights | Yes — facts infobox on created pages | **live**, spec | |
-| Templates: discovery / application | **Undocumented** (read) / **None** (apply) | Read: yes (live, Oct 2026) | — | Copy layout, fill locally | — | No template endpoints. Observed: `resources.list` returns templates with `parentId: "templates"` (e.g. *Statblock*), and `resources.get` / `documents.getBlocks` read them like pages. There is no "create from template"; the app copies the block layout and fills it in. Undocumented, so the app only uses it to *suggest* templates; any page can serve as the example instead. |
+| Templates: listing | `GET /templates` | `templates.list` (paged, every depth) | Member | **Yes** — Copy from LegendKeeper; preview checks | **live** (7 templates, one nested), contract | Documented since 4.1.0. A template is a resource under the virtual root `templates`; a resource under a template is a template too. `resources.list` without `parentId` returns templates with the other resources, so the index marks them (at any depth) and leaves them out of audits, tagging, links and analysis. Search and collection blocks do not return templates. |
+| Templates: create a page from one | `POST /resources/from-template` | `resources.createFromTemplate` | Member under an editable parent; Admin at the top level | **Yes** — every page whose local template was copied from a LegendKeeper template (option on by default) | **live** (app import → *Statblock* copy in the sandbox; duplicate id refused), spec, contract | Copies fields, sidebar properties and tabs with content under new ids; takes `id`, `name`, `parentId`, `after`/`before`, `includeChildren` and an Idempotency-Key, but **no tags, aliases or content**, so the app then replaces the first page tab (`ifMatch`) and updates tags and aliases: up to 3 writes, not atomic (unfinished pages are finished with “Finish the page”). Built-in `unsupported` items (infobox Tags/Aliases rows) survive the replace when sent back by id (**live**). `includeChildren` is not used. |
+| Templates: save a page as one | `POST /resources/{id}/save-as-template` | `resources.saveAsTemplate` | **Admin** | **Yes** — “Save a page as a LegendKeeper template”, with preview and approval | spec, contract — **not yet live** (it always creates a top-level template, outside the sandbox) | Copies the page (and optionally up to 99 descendants) into a new top-level template; the page does not change. Client-chosen `id` + Idempotency-Key; read back (parent must be `templates`). |
+| Templates: other | `parentId: 'templates'` on create/createMany/move | `resources.create/move` | Admin | **No** | — | Making or moving templates directly is not offered. |
 | Timelines: reading | `GET …/docs/{id}`, `…/lanes`, `…/events[/{id}]` | `documents.get`, `timelines.listLanes/listEvents/getEvent` | Member | **Yes (Phase 3)** — Chronology reads every timeline the scan found | **live** (2 timelines, 17 events; integration test) | Events of chained timelines are listed too; the app keeps each with the timeline that holds it. |
 | Timelines: adding an event | `POST …/events` | `timelines.createEvent` | edit rights | **Yes (Phase 3)** — one event at a time, with preview and approval | **live** (sandbox probe, app write, integration test) | Client-chosen `id`; a second create with it → `409 DUPLICATE_ID`. `uri` must point at a readable resource (else `400`). No `ifMatch`. See *Phase 3* below. |
 | Timelines: other writes | lanes, `PATCH/DELETE …/events/{id}`, `documents.update` (`calendarId`, `sources`) | `timelines.*`, `documents.update` | edit rights | **No** — timelines and lanes are created, events changed or removed, in LegendKeeper | **live** (probe: create lane, update event) | Deliberately not used: an event update has no version check. |
@@ -149,7 +159,7 @@ Checked against the SDK's `GUIDE.md` (*timelines and calendars*, *Chaining timel
 *Calendars*), its OpenAPI schema (`Event`, `EventCreateParams`, `EventDate`, `Lane`, `Calendar`)
 and live in the test project.
 
-| Question | Documented | In SDK 4.0.0 | Verified | Answer |
+| Question | Documented | In SDK 4.0.0/4.1.0 | Verified | Answer |
 | --- | --- | --- | --- | --- |
 | Read timeline resources | yes | `documents.get` (type `time`, `calendarId`, `sources`) | **live** | Yes. Timelines are documents of type `time` on any resource; the scan's document list finds them. |
 | Read timeline events | yes | `timelines.listEvents` (paged), `getEvent`, `listLanes` | **live** | Yes, with `formattedStart/End`, `startDate/endDate` (`year`, `monthName`, `day`, `era.abbr`), `detail` (1 year, 2 month, 3 day, 4 time) and `uri`. |

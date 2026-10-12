@@ -133,11 +133,12 @@ function collect(ctx: AppContext): ReviewEntry[] {
   }
 
   // Single imports (outside batches): uncertain or failed writes, drafts waiting.
-  for (const draft of ctx.repos.drafts.listByStatus(['write_uncertain', 'write_failed', 'awaiting_approval'])) {
+  for (const draft of ctx.repos.drafts.listByStatus(['write_uncertain', 'write_incomplete', 'write_failed', 'awaiting_approval'])) {
     const job = ctx.repos.jobs.get(draft.jobId)
     if (!job || job.batchId) continue
     const base = { key: `draft:${draft.id}`, title: draft.page.name || job.name, resourceId: draft.createdResourceId, job: null, at: draft.updatedAt, href: `/import/${job.id}` }
     if (draft.status === 'write_uncertain') out.push({ ...base, type: 'uncertain_write', severity: 'high', explanation: 'The page may or may not have been created. Open the import and check it; it is never created twice.' })
+    else if (draft.status === 'write_incomplete') out.push({ ...base, type: 'uncertain_write', severity: 'high', explanation: 'The page was created from its LegendKeeper template but not filled completely. Open the import and use “Finish the page”.' })
     else if (draft.status === 'write_failed') out.push({ ...base, type: 'failed', severity: 'high', explanation: draft.writeError ?? 'Creating the page failed.' })
     else out.push({ ...base, type: 'import_draft', severity: 'low', explanation: 'Approved for the final preview but not written yet.' })
   }

@@ -105,7 +105,7 @@ export function toConnectorError(error: unknown): ConnectorError {
           ? 'the key belongs to a different project'
           : error.code === 'FEATURE_UNAVAILABLE'
             ? 'the request uses a feature that is not available yet'
-            : 'the key’s role, or the page’s permissions, do not allow it. Some operations (the tag list, creating top-level pages, hidden pages) need an ADMIN key'
+            : 'the key’s role, or the page’s permissions, do not allow it. Some operations (the tag list, creating top-level pages, hidden pages, saving a page as a template) need an ADMIN key'
       return new ConnectorError('permission', `LegendKeeper refused the request because ${why}${ref}.`, base)
     }
     if (error instanceof NotFoundError) {

@@ -55,7 +55,7 @@ export async function runTransform(ctx: AppContext, jobId: string, options: Tran
   if (job.status === 'transforming') throw new ServiceError(409, 'A transformation is already running for this import.')
   if (job.sourceText === null) throw new ServiceError(409, 'The source text for this import has been deleted. Start a new import.')
   const existingDraft = ctx.repos.drafts.getByJob(jobId)
-  if (existingDraft && ['writing', 'write_uncertain', 'created'].includes(existingDraft.status)) {
+  if (existingDraft && ['writing', 'write_uncertain', 'write_incomplete', 'created'].includes(existingDraft.status)) {
     throw new ServiceError(409, 'This draft has already been written (or a write is in progress), so it cannot be regenerated.')
   }
 

@@ -486,6 +486,16 @@ CREATE TABLE timeline_writes (
 );
 `,
   },
+  {
+    version: 6,
+    name: 'LegendKeeper templates at any depth are marked in the local index',
+    sql: `
+-- 1 for a resource under LegendKeeper's virtual "templates" root, at any depth (a resource under
+-- a template is a template too). Set after every scan page from the parent chain.
+ALTER TABLE lk_index_resources ADD COLUMN is_template INTEGER NOT NULL DEFAULT 0;
+UPDATE lk_index_resources SET is_template = 1 WHERE parent_id = 'templates';
+`,
+  },
 ]
 
 /** Applies pending migrations in order, each in its own transaction. Returns the versions applied. */

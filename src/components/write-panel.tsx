@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Badge, Button, Card, ErrorBox, JsonView, KeyValue, Notice, formatDate, statusTone, useAction } from './ui'
 import { LkBlocksPreview } from './lk-preview'
 import { api } from '@/lib/api'
@@ -23,6 +23,7 @@ export function WritePanel({ view, dirty, onChange }: { view: DraftView; dirty: 
   const approve = useAction()
   const check = useAction()
   const newId = useAction()
+  const finish = useAction()
   const status = view.draft.status
   const errors = view.findings.filter((f) => f.severity === 'error').length
 
@@ -63,6 +64,27 @@ export function WritePanel({ view, dirty, onChange }: { view: DraftView; dirty: 
           </div>
         </Notice>
       )}
+      {status === 'write_incomplete' && (
+        <Notice tone="warning">
+          <strong>The page exists but is not finished.</strong> {view.draft.writeError}{' '}
+          {view.draft.createdResourceId && <Link href={`/pages/${view.draft.createdResourceId}`}>Open the page</Link>}
+          <div className="row" style={{ marginTop: '0.5rem' }}>
+            <Button
+              variant="primary"
+              busy={finish.busy}
+              onClick={() =>
+                finish.run(async () => {
+                  setResult(await api.post(`/api/drafts/${view.draft.id}/write`, { action: 'finish', confirm: true }))
+                  await refresh()
+                })
+              }
+            >
+              Finish the page
+            </Button>
+            <span className="small muted">Fills its first page tab with the approved content and adds the tags and aliases. Nothing new is created.</span>
+          </div>
+        </Notice>
+      )}
       {status === 'write_failed' && view.draft.writeError && (
         <Notice tone="error">
           <strong>The last write did not happen.</strong> {view.draft.writeError}
@@ -71,8 +93,9 @@ export function WritePanel({ view, dirty, onChange }: { view: DraftView; dirty: 
       )}
       <ErrorBox error={check.error} />
       <ErrorBox error={newId.error} />
+      <ErrorBox error={finish.error} title="The page could not be finished" />
 
-      {view.writeBlockers.length > 0 ? (
+      {status === 'write_incomplete' ? null : view.writeBlockers.length > 0 ? (
         <Notice tone="info">
           <strong>Creating pages is not available yet:</strong>
           <ul>
@@ -87,7 +110,7 @@ export function WritePanel({ view, dirty, onChange }: { view: DraftView; dirty: 
       ) : (
         <>
           <p>
-            Creates <strong>one</strong> new page from the saved draft. Nothing is changed, moved or deleted. You will see exactly what will be sent before anything is written.
+            Creates <strong>one</strong> new page from the saved draft. Nothing else is changed, moved or deleted. You will see exactly what will be sent before anything is written.
           </p>
           <Button
             variant="primary"
@@ -119,7 +142,22 @@ export function WritePanel({ view, dirty, onChange }: { view: DraftView; dirty: 
               ['Page name', <strong key="n">{preview.name}</strong>],
               ['Goes under', preview.parent ? `${preview.parent.name} (${preview.parent.id})` : 'Top level of the project tree'],
               ['New page ID', <code key="i">{preview.plannedResourceId}</code>],
+              ...(preview.fromTemplate
+                ? ([
+                    [
+                      'Created from',
+                      <span key="tpl">
+                        A copy of the LegendKeeper template <strong>{preview.fromTemplate.name}</strong> (<code>{preview.fromTemplate.id}</code>): its {preview.fromTemplate.tabs.length} tab
+                        {preview.fromTemplate.tabs.length === 1 ? '' : 's'} ({preview.fromTemplate.tabs.map((t) => t.name).join(', ')}), {preview.fromTemplate.sidebarProperties} sidebar propert
+                        {preview.fromTemplate.sidebarProperties === 1 ? 'y' : 'ies'}, icon and banner. The tab “{preview.fromTemplate.filledTab}” gets the content below
+                        {preview.fromTemplate.keptBoxes.length > 0 && <>, keeping the template’s {preview.fromTemplate.keptBoxes.join(', ')}</>}. Its other tabs stay as in the template.
+                      </span>,
+                    ],
+                  ] as [string, ReactNode][])
+                : []),
+              ['Position', preview.placement],
               ['Tags', preview.tags.length ? <span key="t" className="pill-list">{preview.tags.map((t) => <Badge key={t.value} tone={statusTone(t.status)}>{t.value}{t.status === 'new' ? ' (new)' : ''}</Badge>)}</span> : 'none'],
+              ...(preview.fromTemplate && preview.fromTemplate.tags.length ? ([['Tags from the template', preview.fromTemplate.tags.join(', ')]] as [string, ReactNode][]) : []),
               ['Aliases', preview.aliases.join(', ') || '—'],
               ['Links (confirmed just now)', preview.links.length ? preview.links.map((l) => `${l.mention} → ${l.name}`).join('; ') : 'none'],
               ['Size', `${(preview.bytes / 1024).toFixed(1)} KB · content fingerprint ${preview.payloadHash}`],
@@ -180,7 +218,7 @@ export function WritePanel({ view, dirty, onChange }: { view: DraftView; dirty: 
         </div>
       )}
 
-      {result && result.status !== 'created' && result.message && <Notice tone={result.status === 'write_uncertain' ? 'warning' : 'error'}>{result.message}</Notice>}
+      {result && result.status !== 'created' && result.status !== 'write_incomplete' && result.message && <Notice tone={result.status === 'write_uncertain' ? 'warning' : 'error'}>{result.message}</Notice>}
     </Card>
   )
 }

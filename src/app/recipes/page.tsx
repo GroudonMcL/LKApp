@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, KeyValue, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { Recipe } from '@/core/recipe'
 import type { TemplateDefinitionInput } from '@/core/template'
@@ -78,6 +78,7 @@ function Templates({ recipes, onRecipesChanged }: { recipes: Recipe[]; onRecipes
   const types = useApi<{ pageTypes: PageTypeDefinition[] }>('/api/page-types')
   const [editing, setEditing] = useState<{ id: string | null; definition: TemplateDefinitionInput } | null>(null)
   const [copying, setCopying] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
   const [made, setMade] = useState<Recipe | null>(null)
   const action = useAction()
@@ -88,16 +89,18 @@ function Templates({ recipes, onRecipesChanged }: { recipes: Recipe[]; onRecipes
       actions={
         <>
           <Button onClick={() => setCopying(!copying)}>Copy from LegendKeeper</Button>
+          <Button onClick={() => setSaving(!saving)}>Save a page as a LegendKeeper template</Button>
           <Button onClick={() => setEditing({ id: null, definition: { name: 'New template', pageType: 'npc', sections: ['Description'], infoboxFields: [] } })}>New template</Button>
         </>
       }
     >
       <Notice>
         A template decides how a new page is laid out. It can be <strong>copied from LegendKeeper</strong> (the layout of one of your LegendKeeper templates, or of any page you pick as
-        an example), or <strong>configured here</strong> as a list of section headings and infobox fields. LegendKeeper’s API cannot create a page “from a template”, so the app copies
-        the layout and fills it in; the new page is not linked to the template inside LegendKeeper. <Badge>example</Badge> templates ship with the app and are read-only;{' '}
-        <Badge tone="info">local</Badge> templates are yours.
+        an example), or <strong>configured here</strong> as a list of section headings and infobox fields. When it was copied from a LegendKeeper template, each new page is created
+        in LegendKeeper as a copy of that template (with its sidebar, icon, banner, other tabs and built-in boxes) and the app fills its first page tab. <Badge>example</Badge> templates
+        ship with the app and are read-only; <Badge tone="info">local</Badge> templates are yours.
       </Notice>
+      {saving && <SaveAsLkTemplate onClose={() => setSaving(false)} />}
       {copying && (
         <CopyFromLegendKeeper
           pageTypes={types.data?.pageTypes ?? []}
@@ -155,6 +158,8 @@ function Templates({ recipes, onRecipesChanged }: { recipes: Recipe[]; onRecipes
                       <>
                         Layout of the LegendKeeper {template.definition.lkLayout.sourceKind} “{template.definition.lkLayout.sourceName}” (<code>{template.definition.lkLayout.sourceResourceId}</code>), copied{' '}
                         {formatDate(template.definition.lkLayout.fetchedAt)}.{' '}
+                        {template.definition.lkLayout.sourceKind === 'template' &&
+                          (template.definition.createFromLkTemplate ? 'New pages start as a copy of this template in LegendKeeper. ' : 'New pages are plain pages with this layout. ')}
                         <button type="button" className="link-button" onClick={() => setOpen(open === template.id ? null : template.id)}>
                           {open === template.id ? 'Hide details' : 'What goes where'}
                         </button>
@@ -275,6 +280,15 @@ function TemplateEditor({ initial, pageTypes, busy, onSave, onCancel }: { initia
               The layout comes from the LegendKeeper {definition.lkLayout.sourceKind} “{definition.lkLayout.sourceName}”. To change it, edit it in LegendKeeper and press <strong>Refresh</strong>.
               The section headings and infobox fields below are not used for this template.
             </Notice>
+            {definition.lkLayout.sourceKind === 'template' && (
+              <label className="check">
+                <input type="checkbox" checked={definition.createFromLkTemplate ?? true} onChange={(e) => setDefinition({ ...definition, createFromLkTemplate: e.target.checked })} />
+                <span>
+                  Create pages from the LegendKeeper template itself. Each new page starts as a copy of “{definition.lkLayout.sourceName}” in LegendKeeper (its sidebar, icon, banner, other
+                  tabs and built-in boxes such as Tags), then the app fills its first page tab. Untick to create a plain page with the copied layout only.
+                </span>
+              </label>
+            )}
           </div>
         )}
         <div className="field">
@@ -349,7 +363,8 @@ function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefini
   return (
     <div className="confirm-box" style={{ marginBottom: '1rem' }}>
       <p>
-        Pick a LegendKeeper template and the kind of page it is for. The app reads its layout (this only reads from LegendKeeper) and saves it here as a local template.
+        Pick a LegendKeeper template and the kind of page it is for. The app reads its layout (this only reads from LegendKeeper) and saves it here as a local template. Pages made
+        with it are then created as copies of the template in LegendKeeper, so they keep its sidebar, icon, banner, other tabs and built-in boxes; the app fills the first page tab.
       </p>
       <label className="check">
         <input type="checkbox" checked={makeRecipe} onChange={(e) => setMakeRecipe(e.target.checked)} />
@@ -376,7 +391,9 @@ function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefini
                     <td>
                       {item.name}
                       <div className="small muted">
-                        <code>{item.id}</code> · updated {formatDate(item.updatedAt)}
+                        <code>{item.id}</code>
+                        {item.parentTemplate && <> · inside “{item.parentTemplate.name}”</>} · {item.documents.length} tab{item.documents.length === 1 ? '' : 's'} ({[...new Set(item.documents.map((d) => d.type))].join(', ')})
+                        {item.tags.length > 0 && <> · tags {item.tags.join(', ')}</>} · updated {formatDate(item.updatedAt)}
                       </div>
                     </td>
                     <td>{typeSelect(pageType, (v) => setChoice({ ...choice, [item.id]: v }), `pt-${item.id}`)}</td>
@@ -409,6 +426,130 @@ function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefini
   )
 }
 
+interface SavePreview {
+  approvalToken: string
+  expiresAt: string
+  project: { id: string; name: string }
+  page: { id: string; name: string; tabs: { name: string; type: string }[]; sidebarProperties: number; tags: string[] }
+  name: string
+  includeChildren: boolean
+  descendants: number
+  plannedTemplateId: string
+  fingerprint: string
+  warnings: string[]
+}
+
+/** Saves a LegendKeeper page as a new LegendKeeper template: preview, explicit approval, read-back. */
+function SaveAsLkTemplate({ onClose }: { onClose: () => void }) {
+  const [resource, setResource] = useState('')
+  const [name, setName] = useState('')
+  const [includeChildren, setIncludeChildren] = useState(false)
+  const [preview, setPreview] = useState<SavePreview | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const [result, setResult] = useState<{ status: string; message?: string; template?: { id: string; name: string; tabs: number }; mismatches?: string[] } | null>(null)
+  const prepare = useAction()
+  const approve = useAction()
+  return (
+    <div className="confirm-box stack" style={{ marginBottom: '1rem' }}>
+      <p>
+        Copies a page of your wiki into a new LegendKeeper template, with its sidebar properties, tabs and content. The page itself does not change. LegendKeeper allows this only for
+        project admins, so it needs an API key with the Admin role. You will see a final preview first.
+      </p>
+      <div className="row" style={{ alignItems: 'flex-end' }}>
+        <div className="field" style={{ flex: 2 }}>
+          <label htmlFor="sat-res">Page (id or link)</label>
+          <input id="sat-res" type="text" value={resource} onChange={(e) => setResource(e.target.value)} placeholder="e.g. l1ylm24t" />
+        </div>
+        <div className="field" style={{ flex: 2 }}>
+          <label htmlFor="sat-name">
+            Template name <span className="hint">(optional; default: the page name + “Template”)</span>
+          </label>
+          <input id="sat-name" type="text" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+      </div>
+      <label className="check">
+        <input type="checkbox" checked={includeChildren} onChange={(e) => setIncludeChildren(e.target.checked)} />
+        <span>Also copy the pages under it (at most 99), keeping their tree</span>
+      </label>
+      <div className="row">
+        <Button
+          variant="primary"
+          busy={prepare.busy}
+          disabled={!resource.trim()}
+          onClick={() =>
+            prepare.run(async () => {
+              setResult(null)
+              setConfirmed(false)
+              setPreview(await api.post<SavePreview>('/api/lk-templates/save', { action: 'prepare', resource: resource.trim(), name: name.trim() || undefined, includeChildren }))
+            })
+          }
+        >
+          Open final preview
+        </Button>
+        <Button variant="ghost" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+      <ErrorBox error={prepare.error} title="The preview could not be prepared" />
+      {preview && (
+        <div className="stack">
+          <KeyValue
+            rows={[
+              ['Project', `${preview.project.name} (${preview.project.id})`],
+              ['Page to copy', `${preview.page.name} (${preview.page.id}) — ${preview.page.tabs.length} tab${preview.page.tabs.length === 1 ? '' : 's'}, ${preview.page.sidebarProperties} sidebar propert${preview.page.sidebarProperties === 1 ? 'y' : 'ies'}`],
+              ['New template', <strong key="n">{preview.name}</strong>],
+              ['Pages under it', preview.includeChildren ? `${preview.descendants} copied with it` : 'not copied'],
+              ['New template ID', <code key="i">{preview.plannedTemplateId}</code>],
+              ['Approval expires', formatDate(preview.expiresAt)],
+            ]}
+          />
+          {preview.warnings.length > 0 && (
+            <Notice tone="warning">
+              <ul>
+                {preview.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </Notice>
+          )}
+          <label className="check">
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+            <span>
+              Create the template “{preview.name}” in <strong>{preview.project.name}</strong>.
+            </span>
+          </label>
+          <div className="row">
+            <Button
+              variant="primary"
+              busy={approve.busy}
+              disabled={!confirmed}
+              onClick={() =>
+                approve.run(async () => {
+                  setResult(await api.post('/api/lk-templates/save', { action: 'approve', approvalToken: preview.approvalToken, confirm: true }))
+                  setPreview(null)
+                })
+              }
+            >
+              Save as template
+            </Button>
+            <Button variant="ghost" onClick={() => setPreview(null)}>
+              Cancel
+            </Button>
+          </div>
+          <ErrorBox error={approve.error} title="The template was not saved" />
+        </div>
+      )}
+      {result?.status === 'created' && result.template && (
+        <Notice tone="success">
+          Saved the template “{result.template.name}” (<code>{result.template.id}</code>) in LegendKeeper. Use <strong>Copy from LegendKeeper</strong> to make pages with it.
+          {result.mismatches && result.mismatches.length > 0 && <> Reading it back showed: {result.mismatches.join('; ')}.</>}
+        </Notice>
+      )}
+      {result && result.status !== 'created' && result.message && <Notice tone={result.status === 'uncertain' ? 'warning' : 'error'}>{result.message}</Notice>}
+    </div>
+  )
+}
+
 function LayoutDetails({ report, blocks }: { report: LayoutReport; blocks: unknown[] }) {
   const [showPreview, setShowPreview] = useState(false)
   return (
@@ -432,8 +573,8 @@ function LayoutDetails({ report, blocks }: { report: LayoutReport; blocks: unkno
       </p>
       {report.droppedParts.length > 0 && (
         <p className="small">
-          Not copied: {report.droppedParts.join(', ')}. LegendKeeper’s API refuses to create its built-in Tags and Aliases boxes, so add those to the page in LegendKeeper if you
-          want them. The page’s tags and aliases themselves are still saved.
+          Not in the copied layout: {report.droppedParts.join(', ')}. The API cannot write these built-in boxes. Pages created from the LegendKeeper template itself keep them; plain
+          pages do not, but their tags and aliases are still saved.
         </p>
       )}
       <button type="button" className="link-button" onClick={() => setShowPreview(!showPreview)}>

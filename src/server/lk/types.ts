@@ -81,6 +81,12 @@ export interface ResourcePage {
   hasMore: boolean
 }
 
+/** Where a new resource goes among its siblings (LegendKeeper orders siblings by `rank`). */
+export interface Placement {
+  after?: string
+  before?: string
+}
+
 export interface CreatePageInput {
   /** Client-chosen resource id (cuid2 format), chosen before the write. */
   resourceId: string
@@ -91,6 +97,32 @@ export interface CreatePageInput {
   documentName: string
   /** LegendKeeper blocks, produced by the renderer. */
   blocks: unknown[]
+  idempotencyKey: string
+  /**
+   * Create the page as a copy of this LegendKeeper template (its fields, sidebar properties
+   * and tabs), then fill its first page tab with `blocks`. Null: a plain new page.
+   */
+  templateId?: string | null
+  /** Position among siblings, decided just before the write. Not part of the approved content. */
+  placement?: Placement | null
+}
+
+export interface CreateFromTemplateInput {
+  templateId: string
+  /** Client-chosen resource id (cuid2 format), chosen before the write. */
+  resourceId: string
+  name: string
+  parentId: string | null
+  idempotencyKey: string
+  placement?: Placement | null
+}
+
+export interface SaveAsTemplateInput {
+  resourceId: string
+  /** Client-chosen id for the new template (cuid2 format), chosen before the write. */
+  templateId: string
+  name: string
+  includeChildren: boolean
   idempotencyKey: string
 }
 

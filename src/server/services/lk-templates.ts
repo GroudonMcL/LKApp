@@ -6,41 +6,79 @@ import { findBuiltInPageType } from '@/core/page-types'
 import { TemplateDefinition, type PageTemplate } from '@/core/template'
 import type { AppContext } from '../context'
 import type { Recipe } from '@/core/recipe'
+import type { ResourceSummary } from '../lk/types'
+import { toConnectorError } from '../lk/errors'
 import { recordAudit } from './audit'
 import { requireProjectId } from './connection'
 import { ServiceError } from './errors'
 import { recipeFromTemplate } from './recipes'
 
 /**
- * Copying page layouts from LegendKeeper. Read-only towards LegendKeeper: it lists resources
- * and reads one document's blocks, then stores a local template.
+ * LegendKeeper templates. Listing them and copying a layout are read-only towards LegendKeeper:
+ * they list templates and read one document's blocks, then store a local template. Creating a
+ * page from a template is part of the guarded write (services/write.ts); saving a page as a
+ * template is in services/lk-save-template.ts.
  */
 
 export interface LkTemplateListing {
   id: string
   name: string
   updatedAt: string | null
+  /** The template it sits under (a resource under a template is a template too), or null at the top level. */
+  parentTemplate: { id: string; name: string } | null
+  tags: string[]
+  /** Its documents ("tabs"), by type: page, map, time, board. */
+  documents: { id: string; name: string; type: string }[]
+}
+
+/** The project's templates at any depth, from LegendKeeper's documented `templates.list` (SDK 4.1.0). */
+export async function listLkTemplates(ctx: AppContext): Promise<{ templates: LkTemplateListing[]; note: string }> {
+  const projectId = await requireProjectId(ctx)
+  let items: ResourceSummary[] = []
+  let note = 'Every template in the project, including templates inside other templates (LegendKeeper’s templates list).'
+  try {
+    let cursor: string | null = null
+    for (let page = 0; page < 20; page++) {
+      const result = await ctx.connector().listTemplates({ cursor, limit: 100 })
+      items.push(...result.items)
+      if (!result.hasMore || !result.nextCursor) break
+      cursor = result.nextCursor
+    }
+  } catch (error) {
+    // Fall back to the templates seen by the last scan, and say so.
+    const indexed = ctx.repos.index.templates(projectId)
+    if (!indexed.length) throw error
+    items = indexed
+    note = `LegendKeeper’s templates list could not be read just now (${toConnectorError(error).message}), so these are the templates from the last scan.`
+  }
+  const byId = new Map(items.map((item) => [item.id, item]))
+  const templates = items
+    .map((item) => {
+      const parent = item.parentId && item.parentId !== LK_TEMPLATES_PARENT_ID ? byId.get(item.parentId) : undefined
+      return {
+        id: item.id,
+        name: item.name,
+        updatedAt: item.updatedAt,
+        parentTemplate: parent ? { id: parent.id, name: parent.name } : null,
+        tags: item.tags,
+        documents: item.documents,
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
+  return { templates, note }
 }
 
 /**
- * The templates of the connected project. LegendKeeper's resource list includes them with
- * the parent id "templates" (observed, not documented), so this is a best-effort list; any
- * page can also be used as an example by its id.
+ * Whether a resource is a LegendKeeper template: its parent chain reaches the virtual root
+ * "templates". Reads at most a few parents.
  */
-export async function listLkTemplates(ctx: AppContext): Promise<{ templates: LkTemplateListing[]; note: string }> {
-  await requireProjectId(ctx)
-  const templates: LkTemplateListing[] = []
-  let cursor: string | null = null
-  for (let page = 0; page < 20; page++) {
-    const result = await ctx.connector().listResources({ parentId: LK_TEMPLATES_PARENT_ID, cursor, limit: 100 })
-    templates.push(...result.items.filter((item) => item.parentId === LK_TEMPLATES_PARENT_ID).map((item) => ({ id: item.id, name: item.name, updatedAt: item.updatedAt })))
-    if (!result.hasMore || !result.nextCursor) break
-    cursor = result.nextCursor
+export async function isLkTemplate(ctx: AppContext, resource: { id: string; parentId: string | null }): Promise<boolean> {
+  let parentId = resource.parentId
+  for (let depth = 0; parentId && depth < 12; depth++) {
+    if (parentId === LK_TEMPLATES_PARENT_ID) return true
+    parentId = (await ctx.connector().getResource(parentId)).parentId
   }
-  return {
-    templates,
-    note: 'LegendKeeper lists templates as resources whose parent is “templates”. This is observed behaviour, not documented, so it may change.',
-  }
+  return false
 }
 
 export const CopyLayoutInput = z.object({
@@ -88,7 +126,7 @@ export async function copyLayoutFromLegendKeeper(ctx: AppContext, input: unknown
     sourceProjectId: projectId,
     sourceResourceId: resource.id,
     sourceName: resource.name,
-    sourceKind: resource.parentId === LK_TEMPLATES_PARENT_ID ? 'template' : 'page',
+    sourceKind: (await isLkTemplate(ctx, resource)) ? 'template' : 'page',
     documentName: document.name,
     blocks,
     droppedParts,

@@ -1,6 +1,8 @@
 import type { LegendKeeperConnector } from '@/server/lk/connector'
 import { ConnectorError } from '@/server/lk/errors'
 import type {
+  CreateFromTemplateInput,
+  SaveAsTemplateInput,
   CreateTimelineEventInput,
   LkCalendarInfo,
   TimelineDocumentInfo,
@@ -28,6 +30,9 @@ export interface MockResource {
   parentId: string | null
   tags: string[]
   aliases: string[]
+  rank?: string | null
+  /** Sidebar properties (opaque), copied with templates. */
+  properties?: unknown[]
   documents: { id: string; name: string; type: string; blocks: unknown[]; version: string; text: string }[]
 }
 
@@ -67,6 +72,8 @@ export class MockConnector implements LegendKeeperConnector {
       parentId: resource.parentId ?? null,
       tags: resource.tags ?? [],
       aliases: resource.aliases ?? [],
+      rank: resource.rank ?? null,
+      properties: resource.properties ?? [],
       documents: resource.documents ?? [{ id: `doc_${id}`, name: 'Main', type: 'page', blocks: [], version: 'v1', text: '' }],
     }
     this.resources.set(id, full)
@@ -103,7 +110,7 @@ export class MockConnector implements LegendKeeperConnector {
     const slice = all.slice(start, start + size)
     const next = start + size < all.length ? String(start + size) : null
     return {
-      items: slice.map((r) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: r.aliases, iconGlyph: null, isHidden: false, rank: null, updatedAt: r.updatedAt ?? null, documents: r.documents.map((d) => ({ id: d.id, name: d.name, type: d.type })) })),
+      items: slice.map((r) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: r.aliases, iconGlyph: null, isHidden: false, rank: r.rank ?? null, updatedAt: r.updatedAt ?? null, documents: r.documents.map((d) => ({ id: d.id, name: d.name, type: d.type })) })),
       nextCursor: next,
       hasMore: next !== null,
     }
@@ -115,10 +122,102 @@ export class MockConnector implements LegendKeeperConnector {
     if (!r) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', requestId: 'req_mock_404', outcome: 'not_applied' })
     return {
       id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: r.aliases, iconGlyph: null, isHidden: false, isLocked: false,
-      rank: null, updatedAt: r.updatedAt ?? null, createdAt: null,
+      rank: r.rank ?? null, updatedAt: r.updatedAt ?? null, createdAt: null,
       documents: r.documents.map((d) => ({ id: d.id, name: d.name, type: d.type, rank: 'a0', isHidden: false })),
-      properties: [],
+      properties: (r.properties ?? []).map((raw, i) => ({ id: `prop${i}`, kind: 'keyValue', title: null, isHidden: false, text: null, raw })),
     }
+  }
+
+  /** Under the virtual "templates" root, at any depth. */
+  isTemplate(resourceId: string): boolean {
+    let current = this.resources.get(resourceId)
+    for (let guard = 0; current && guard < 50; guard++) {
+      if (current.parentId === 'templates') return true
+      current = current.parentId ? this.resources.get(current.parentId) : undefined
+    }
+    return false
+  }
+
+  async listTemplates(options: { cursor?: string | null; limit?: number }): Promise<ResourcePage> {
+    this.record('listTemplates', options)
+    const all = [...this.resources.values()].filter((r) => this.isTemplate(r.id)).sort((a, b) => (a.id < b.id ? -1 : 1))
+    const size = options.limit ?? 50
+    const start = options.cursor ? Number(options.cursor) : 0
+    const next = start + size < all.length ? String(start + size) : null
+    return {
+      items: all.slice(start, start + size).map((r) => ({ id: r.id, name: r.name, parentId: r.parentId, tags: r.tags, aliases: r.aliases, iconGlyph: null, isHidden: false, rank: r.rank ?? null, updatedAt: null, documents: r.documents.map((d) => ({ id: d.id, name: d.name, type: d.type })) })),
+      nextCursor: next,
+      hasMore: next !== null,
+    }
+  }
+
+  /** Copies a resource (fields, properties, documents) under a new id. */
+  private copyResource(source: MockResource, id: string, name: string, parentId: string | null): MockResource {
+    return this.add({
+      id,
+      name,
+      parentId,
+      tags: [...source.tags],
+      aliases: [...source.aliases],
+      properties: structuredClone(source.properties ?? []),
+      documents: source.documents.map((d, i) => ({ ...structuredClone(d), id: `doc_${id}_${i}`, version: 'v1' })),
+    })
+  }
+
+  templateBehavior: CreateBehavior = 'ok'
+  fromTemplateRequests: CreateFromTemplateInput[] = []
+
+  async createFromTemplate(input: CreateFromTemplateInput): Promise<ResourceDetail> {
+    this.record('createFromTemplate', input)
+    this.fromTemplateRequests.push(input)
+    const apply = () => {
+      const template = this.resources.get(input.templateId)
+      if (!template) throw new ConnectorError('not_found', 'template not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+      if (!this.isTemplate(template.id)) throw new ConnectorError('validation', 'not a template', { status: 400, code: 'VALIDATION_ERROR', outcome: 'not_applied' })
+      if (this.resources.has(input.resourceId)) throw new ConnectorError('duplicate_id', 'duplicate', { status: 409, code: 'DUPLICATE_ID', outcome: 'not_applied' })
+      if (input.parentId && !this.resources.has(input.parentId)) throw new ConnectorError('not_found', 'parent not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+      this.copyResource(template, input.resourceId, input.name || template.name.replace(/\s*Template\b/i, '').trim(), input.parentId)
+    }
+    switch (this.templateBehavior) {
+      case 'permission_error':
+        throw new ConnectorError('permission', 'forbidden', { status: 403, code: 'FORBIDDEN', outcome: 'not_applied' })
+      case 'connection_error_before_apply':
+        throw new ConnectorError('connection', 'network down', { outcome: 'unknown' })
+      case 'apply_then_connection_error':
+        apply()
+        throw new ConnectorError('connection', 'reply lost', { outcome: 'unknown' })
+      default:
+        apply()
+    }
+    return this.getResource(input.resourceId)
+  }
+
+  async saveAsTemplate(input: SaveAsTemplateInput): Promise<ResourceDetail> {
+    this.record('saveAsTemplate', input)
+    if (!this.isAdmin) throw new ConnectorError('permission', 'admins only', { status: 403, code: 'FORBIDDEN', outcome: 'not_applied' })
+    const source = this.resources.get(input.resourceId)
+    if (!source) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+    if (this.resources.has(input.templateId)) throw new ConnectorError('duplicate_id', 'duplicate', { status: 409, code: 'DUPLICATE_ID', outcome: 'not_applied' })
+    this.copyResource(source, input.templateId, input.name, 'templates')
+    if (input.includeChildren) {
+      const copyChildren = (fromId: string, toId: string) => {
+        for (const child of [...this.resources.values()].filter((r) => r.parentId === fromId)) {
+          const copy = this.copyResource(child, `${child.id}t${this.resources.size}`.slice(0, 24), child.name, toId)
+          copyChildren(child.id, copy.id)
+        }
+      }
+      copyChildren(source.id, input.templateId)
+    }
+    return this.getResource(input.templateId)
+  }
+
+  async updateResourceLabels(resourceId: string, labels: { tags: string[]; aliases: string[] }): Promise<{ tags: string[]; aliases: string[] }> {
+    this.record('updateResourceLabels', { resourceId, ...labels })
+    const r = this.resources.get(resourceId)
+    if (!r) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+    r.tags = [...labels.tags]
+    r.aliases = [...labels.aliases]
+    return { tags: r.tags, aliases: r.aliases }
   }
 
   async getDocumentContent(resourceId: string, documentId: string): Promise<DocumentContent> {

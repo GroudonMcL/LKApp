@@ -38,7 +38,7 @@ returns data that is checked against a schema.
 
 ## Honest status
 
-- Built against the official SDK **4.0.0**, its documentation and its OpenAPI schema, and
+- Built against the official SDK **4.1.0** (LegendKeeper *Foundations Vol. 3*), its documentation and its OpenAPI schema, and
   **verified live** against a dedicated LegendKeeper test project (see
   [docs/CAPABILITIES.md](docs/CAPABILITIES.md) for each operation and how it was verified).
 - Phase 2 writes were verified live on throwaway pages under a sandbox page, which were
@@ -53,6 +53,13 @@ returns data that is checked against a schema.
 - With OpenRouter the app only ever uses free models (see *Configuring the AI provider*).
   With Claude, cost estimates use list prices as of the date shown on screen; your
   Anthropic bill is authoritative.
+- LegendKeeper templates (SDK 4.1.0) were verified live (12 Oct 2026, test project): the
+  official templates list (7 templates, including one inside another); a statblock imported
+  through the app and created **as a copy of the *Statblock* template** under the sandbox
+  (it kept the template's icon, sidebar Tags box and the infobox's built-in Tags and Aliases
+  rows, got the statblock values, and was placed alphabetically); a duplicate copy with the
+  same id refused; a page placed directly before another. *Saving a page as a template* is
+  tested against the official schema and a local server only — see *Known limitations*.
 - Phase 3 was verified live (12 Oct 2026, test project): LegendKeeper timelines and calendars
   read (2 timelines, 17 events; the project's own Greyhawk calendar linked automatically);
   event discovery over 184 read pages, plus AI discovery and AI planning through free
@@ -632,10 +639,28 @@ import is open and is deleted when it is completed or cancelled (its SHA-256 has
 
 ## Using your LegendKeeper templates
 
-On **Recipes & templates → Copy from LegendKeeper**, the app lists your project's templates
-(for example *Statblock*). Pick the page type it is for and press **Copy layout**. The app
-reads the template (it never changes it) and saves its layout as a local template. Then open
-your recipe and choose that template. New pages are built from the same blocks:
+On **Recipes & templates → Copy from LegendKeeper**, the app lists every template in your
+project, including templates inside other templates (for example *Statblock*, or *Subclass*
+inside *Class Details*). Pick the page type it is for and press **Copy layout**. The app reads
+the template (it never changes it) and saves its layout as a local template, plus a matching
+recipe.
+
+**Pages are created from the template itself.** When the layout came from a LegendKeeper
+template, each approved page is created in LegendKeeper as a **copy of that template**
+(LegendKeeper's *create from template*): it gets the template's sidebar properties (such as
+the Tags box), icon, banner, colour and other tabs, exactly as the template has them. The app
+then fills the template's first page tab with your content, keeping the template's built-in
+boxes that the API cannot write (such as the Tags and Aliases rows of an infobox), and adds
+your tags and aliases to the template's own. The final preview says which template is used,
+which tab is filled and which built-in boxes are kept. To create plain pages with the copied
+layout instead (the behaviour before October 2026), edit the local template and untick
+**Create pages from the LegendKeeper template itself**.
+
+If filling a page fails after LegendKeeper has made the copy (for example the connection
+drops), the page exists but is unfinished. The draft shows **Finish the page**, which repeats
+only the filling steps; the page is never created twice.
+
+Filling the layout works like this:
 
 - the first big heading becomes the page name;
 - each infobox row is filled from the field with the same name or alias (“Armour Class” → Armor
@@ -670,8 +695,24 @@ built-in example for that page type (field aliases, tag and link rules, AI instr
 required fields) and uses your template. On each import you can still pick another template for
 the same page type, and switch it while reviewing the draft; the preview updates straight away.
 
-LegendKeeper lists templates as resources whose parent is `templates`; that is
-observed, not documented, so if it ever stops working, use the page-as-example option.
+### Where new pages go
+
+A recipe's **Default parent page** decides which page new pages go under. **Position among the
+pages beside it** decides where: *After the last page* (LegendKeeper's default) or *In
+alphabetical order* (before the first page, in the order LegendKeeper shows them, whose name
+sorts after the new one). The final preview shows the position.
+
+### Saving a page as a LegendKeeper template
+
+**Recipes & templates → Save a page as a LegendKeeper template** copies one of your pages (and,
+if you tick it, the pages under it, at most 99) into a new LegendKeeper template, with its
+sidebar properties, tabs and content. The page itself does not change. You see a final preview
+first, then approve; the template gets an id chosen in advance, so it can never be made twice
+by accident. LegendKeeper only allows project admins to do this, so it needs an API key with
+the **Admin** role. Then use **Copy from LegendKeeper** to make pages with the new template.
+
+Templates are left out of Wiki Health, tagging, link suggestions, chronology and analysis
+(including templates inside other templates), and are marked *template* in the page browser.
 
 ## Recipes in more detail
 
@@ -793,10 +834,10 @@ LKC_PROBE=1 npx tsx scripts/probe-legendkeeper.ts   # report in data/probe-repor
 
 ## Known limitations
 
-These come from the documented LegendKeeper API and SDK 4.0.0. Each is handled by doing the
+These come from the documented LegendKeeper API and SDK 4.1.0. Each is handled by doing the
 supported part and saying so on screen.
 
-- **Templates**: the API has no “create from template” operation and does not document templates. The app copies a template's *layout* (read with the normal read operations) and fills it; pages are not linked to the template in LegendKeeper, and **LegendKeeper does not record which template a page came from**, so the audit's layout check compares pages with the layout you chose for their page type. Empty image slots and LegendKeeper's built-in Tags and Aliases boxes cannot be created through the API (`UNSUPPORTED_KIND`, as documented), so they are left out; add those boxes in LegendKeeper if you want them. Templates are found as resources whose parent is `templates` (observed, not documented); if that stops working, use the example-page option.
+- **Templates**: LegendKeeper does not record which template a page came from, so the audit's layout check compares pages with the layout you chose for their page type. A page created from a template takes up to three writes (create, fill, tags and aliases), which are not one transaction: if the second or third fails, the page exists unfinished until you press **Finish the page**. Built-in boxes are kept only where the copied layout has the same container (for example the infobox); any others are listed in the preview as not kept. Plain pages (the option unticked, or a layout copied from an ordinary page) still cannot get the built-in Tags and Aliases boxes (`UNSUPPORTED_KIND`, as documented). **Saving a page as a template** has been checked against LegendKeeper's official schema and a local test server, but not yet against the live service: it can only create a template at the top of the project's templates list, outside the sandbox page, so it was not run without your permission. Its first use is your live check; the app reads the new template back and reports any difference.
 - **Tag updates have no version check** (`resources.update` replaces the whole list and takes no `ifMatch`). The app reads right before writing and reads back afterwards, which narrows but cannot fully close the window for a simultaneous edit.
 - **Page content edits do not change a page's `updatedAt`.** Changes are detected with the document's version instead, which needs reading the page; the audit and the review queue's “changed after an audit” therefore notice name, tag and position changes from the index, and content changes at the next audit.
 - **Blocks the API cannot express** (`unsupported`) cannot be read or created; migrations keep them by sending them back by id, and restore relies on them still being in the page.
@@ -805,12 +846,12 @@ supported part and saying so on screen.
 - **Filtering**: the API cannot filter resources by name or tag, and has no backlinks endpoint, so selection, audits and the review queue rely on the local index, which is as fresh as the last scan.
 - **Tag list** needs an ADMIN key; otherwise tags are counted from the index.
 - **Formats**: old Word `.doc`, `.odt`, `.rtf` and spreadsheets are refused with advice. Images and scanned PDFs need AI transcription (on request).
-- **Rate limits**: 120 writes and 300 requests a minute per key. Batches are paced below that, so very large jobs take time (about 100 pages a minute to write, about 4 a second to audit).
+- **Rate limits**: 120 writes and 300 requests a minute per key. Batches are paced below that, so very large jobs take time (about 100 plain pages a minute, or about 30 pages a minute created from templates, which take three writes each; about 4 pages a second to audit).
 - **Timelines** *(Phase 3)*: the API can read timelines, lanes, events and calendars, and create, change and delete them. The app reads them, and **adds** single events to an existing lane with approval; it does not create timelines, lanes or calendars, and never changes or deletes an event (do that in LegendKeeper). LegendKeeper stores a date's precision (year, month, day) but **not whether it is approximate**, and has no way to say an event is only known relative to another, so such events stay in the local chronology only. `formattedStart` is parsed loosely by LegendKeeper (live test: “c. 576” → Coldeven 576, “-50” → 50 CY, “the 590s” → 590), so the app sends only plain forms it builds itself and checks the result on read-back. Events have a name and an optional page link, but no description field.
 - **Chronology and analysis** work from the page content the last audit read (the first 20,000 characters of each page's text, plus its fields and links); pages not yet read are left out and counted on screen. Rule-based reading finds events and relationships stated in common wording; unusual phrasing needs the optional AI or your own review. Names shorter than three letters are not matched in running text.
 - **Relationships** cannot be written as such: LegendKeeper has no relationship objects. Links can be added to existing pages with a template migration; fields with the page editor in LegendKeeper.
 - **Deleting** pages is deliberately not offered. The tests and probes that create test pages delete only their own pages, and only when explicitly asked.
-- SDK 4.0.0 is new. It is pinned exactly; read the SDK changelog before upgrading.
+- SDK 4.1.0 is new. It is pinned exactly; read the SDK changelog (`node_modules/@legendkeeper/sdk/CHANGELOG.md`) before upgrading.
 
 ## Troubleshooting
 

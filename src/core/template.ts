@@ -5,8 +5,7 @@ import { BUILT_IN_PAGE_TYPES } from './page-types'
 /**
  * Page templates.
  *
- * LegendKeeper's v3 API has no operation to apply the templates you build in the app (see
- * docs/CAPABILITIES.md). Templates here are stored locally and come in two forms:
+ * Templates here are stored locally and come in two forms:
  * - a configured structure: an ordered list of section headings plus the fields shown in the
  *   infobox, laid out by the app's own renderer;
  * - a layout copied from LegendKeeper (`lkLayout`): the block structure of one of your
@@ -36,6 +35,12 @@ export const TemplateDefinition = z.object({
   notes: z.string().max(4000).default(''),
   /** A layout copied from LegendKeeper. When set, it replaces the app's own page layout. */
   lkLayout: LkLayout.nullable().default(null),
+  /**
+   * When the layout was copied from a LegendKeeper template: create each page as a copy of that
+   * template (its sidebar properties, icon, banner, other tabs and built-in boxes), then fill
+   * its first page tab. Off: a plain new page with the copied layout.
+   */
+  createFromLkTemplate: z.boolean().default(true),
 })
 export type TemplateDefinition = z.infer<typeof TemplateDefinition>
 export type TemplateDefinitionInput = z.input<typeof TemplateDefinition>

@@ -17,9 +17,10 @@ import type { PageTypeDefinition } from './page-types'
  *
  * The template text itself ("Example Bite. …", "Creature Description Text") is never written.
  *
- * LegendKeeper's API has no "create from template" operation, so the new page is not linked
- * to the template inside LegendKeeper; it just has the same structure. A copied layout does
- * not follow later edits to the template until you refresh it.
+ * When the source is a LegendKeeper template, a new page can instead be created as a copy of
+ * the template itself (`resources.createFromTemplate`, SDK 4.1.0), which brings its sidebar
+ * properties, icon, banner and other tabs; the app then fills the first page tab with this
+ * layout. A copied layout does not follow later edits to the template until you refresh it.
  */
 
 export const LkLayout = z.object({
@@ -38,9 +39,8 @@ export const LkLayout = z.object({
 export type LkLayout = z.infer<typeof LkLayout>
 
 /**
- * Parent id that LegendKeeper's resource list reports for template resources. Observed on a
- * live project (October 2026, API v3, SDK 4.0.0); it is not documented, so the app only uses
- * it to *suggest* templates and to keep them out of link suggestions.
+ * LegendKeeper's virtual root of templates (documented in API v3 / SDK 4.1.0): a top-level
+ * template has this parent id, and a resource under a template is a template too.
  */
 export const LK_TEMPLATES_PARENT_ID = 'templates'
 

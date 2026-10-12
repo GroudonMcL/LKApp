@@ -184,13 +184,21 @@ export default function RecipeEditorPage({ params }: { params: Promise<{ recipeI
                     </option>
                   ))}
                 </select>
-                <div className="small muted">Templates are configured locally — LegendKeeper templates cannot be read through the API.</div>
+                <div className="small muted">Copy a LegendKeeper template on the Recipes &amp; templates page to use it here.</div>
               </div>
               <div className="field">
                 <label htmlFor="r-parent">
                   Default parent page ID <span className="hint">(optional)</span>
                 </label>
                 <input id="r-parent" type="text" value={definition.defaultParentId ?? ''} onChange={(e) => set({ defaultParentId: e.target.value.trim() || null })} />
+              </div>
+              <div className="field">
+                <label htmlFor="r-placement">Position among the pages beside it</label>
+                <select id="r-placement" value={definition.placement ?? 'end'} onChange={(e) => set({ placement: e.target.value as 'end' | 'alphabetical' })}>
+                  <option value="end">After the last page (LegendKeeper’s default)</option>
+                  <option value="alphabetical">In alphabetical order</option>
+                </select>
+                <div className="small muted">Alphabetical places the new page before the first page whose name sorts after it, in the order LegendKeeper shows them.</div>
               </div>
             </div>
           </Card>
