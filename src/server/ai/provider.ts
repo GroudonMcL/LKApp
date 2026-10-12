@@ -4,6 +4,7 @@ import type { RecipeDefinition } from '@/core/recipe'
 import type { TemplateDefinition } from '@/core/template'
 import type { TranscriptionOutput } from './prompts/transcribe'
 import type { TagPromptInput, TagSuggestionOutput } from './prompts/tags'
+import type { AnalysisOutput, AnalysisTaskId } from './prompts/analysis'
 
 /**
  * The AI provider abstraction. The rest of the app asks for a transformation and gets back
@@ -77,6 +78,15 @@ export interface TagSuggestResponse {
   outputTokens: number | null
 }
 
+export interface AnalysisResponse<K extends AnalysisTaskId> {
+  output: AnalysisOutput<K>
+  model: string
+  servedByModel: string
+  promptVersion: string
+  inputTokens: number | null
+  outputTokens: number | null
+}
+
 export interface AiProvider {
   readonly id: string
   readonly model: string
@@ -85,4 +95,9 @@ export interface AiProvider {
   transcribe(request: TranscribeRequest, signal?: AbortSignal): Promise<TranscribeResponse>
   /** Tag suggestions for one existing page (only when the tagging settings enable AI). */
   suggestTags(request: TagPromptInput, signal?: AbortSignal): Promise<TagSuggestResponse>
+  /**
+   * One analysis task from the fixed list in prompts/analysis.ts (its prompt and output schema
+   * are defined there, not by the caller). `user` is the app-built message with the page text.
+   */
+  analyse<K extends AnalysisTaskId>(task: K, user: string, signal?: AbortSignal): Promise<AnalysisResponse<K>>
 }

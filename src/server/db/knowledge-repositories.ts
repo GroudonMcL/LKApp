@@ -283,13 +283,15 @@ export class KnowledgeRepo {
    * Items of the given kinds, for the given pages, that a complete run over those pages no
    * longer found. Open ones are marked resolved; decisions you took are kept as they are.
    */
-  resolveMissing(projectId: string, runId: string, kinds: KnowledgeKind[], resourceIds: Set<string>): number {
+  resolveMissing(projectId: string, runId: string, kinds: KnowledgeKind[], resourceIds: Set<string>, origin?: KnowledgeItem['origin']): number {
     const rows = this.db
       .prepare(`SELECT * FROM knowledge_items WHERE project_id = ? AND status = 'open' AND (run_id IS NULL OR run_id != ?) AND kind IN (${kinds.map(() => '?').join(', ')})`)
       .all(projectId, runId, ...kinds) as Record<string, unknown>[]
     let n = 0
     for (const row of rows) {
       const item = toItem(row)
+      // A run without AI cannot re-find what the AI proposed, and the other way round.
+      if (origin && item.origin !== origin) continue
       // Only items that rest entirely on pages this run looked at.
       if (!item.evidence.length || !item.evidence.every((c) => resourceIds.has(c.resourceId))) continue
       this.db.prepare("UPDATE knowledge_items SET status = 'resolved', status_note = 'Not found by a later analysis of the same pages.', status_changed_at = ? WHERE id = ?").run(now(), item.id)

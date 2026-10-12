@@ -133,7 +133,9 @@ function readPoint(raw: string, settings: CalendarSettings, options: { allowBare
       hi = calendar.hasZeroYear ? n * 100 - 1 : n * 100
     } else {
       lo = Number(decade![1])
-      hi = lo + 9
+      // "the 400s" usually means 400–499; "the 590s" means 590–599.
+      hi = lo % 100 === 0 && lo > 0 ? lo + 99 : lo + 9
+      if (hi - lo === 99) notes.push(`Read as ${lo}–${hi}; “${decade![0]}” could also mean the decade ${lo}–${lo + 9}.`)
     }
     const a = toPrimary(lo, eraDef)
     const b = toPrimary(hi, eraDef)
@@ -142,7 +144,7 @@ function readPoint(raw: string, settings: CalendarSettings, options: { allowBare
     return {
       point: { year: null, yearAsWritten: null, era: eraDef.abbr, eraAssumed: !era, month: null, monthIndex: null, day: null },
       calendar,
-      precision: century ? 'century' : 'decade',
+      precision: century || (decade && Number(decade[1]) % 100 === 0 && Number(decade[1]) > 0) ? 'century' : 'decade',
       span: a === null || b === null ? null : { lo: Math.min(a, b), hi: Math.max(a, b) + 0.999 },
       notes,
     }

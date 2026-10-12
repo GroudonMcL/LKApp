@@ -3,7 +3,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod'
 import { AiDraftOutput } from '@/core/ai-output'
 import type { z } from 'zod'
-import { AiError, type AiProvider, type TagSuggestResponse, type TranscribeRequest, type TranscribeResponse, type TransformRequest, type TransformResponse } from './provider'
+import { ANALYSIS_TASKS, type AnalysisTaskId } from './prompts/analysis'
+import { AiError, type AiProvider, type AnalysisResponse, type TagSuggestResponse, type TranscribeRequest, type TranscribeResponse, type TransformRequest, type TransformResponse } from './provider'
 import { PROMPT_VERSION, SYSTEM_PROMPT, buildUserPrompt } from './prompts/transform'
 import { TAGS_PROMPT_VERSION, TAGS_SYSTEM_PROMPT, TagSuggestionOutput, tagsUserPrompt, type TagPromptInput } from './prompts/tags'
 import { TRANSCRIBE_PROMPT_VERSION, TRANSCRIBE_SYSTEM_PROMPT, TranscriptionOutput, transcribeUserPrompt } from './prompts/transcribe'
@@ -92,6 +93,12 @@ export class ClaudeProvider implements AiProvider {
       truncated: 'The AI reply was cut off. Try again.',
     })
     return { output: data, model: this.model, servedByModel: message.model, promptVersion: TAGS_PROMPT_VERSION, inputTokens: message.usage?.input_tokens ?? null, outputTokens: message.usage?.output_tokens ?? null }
+  }
+
+  async analyse<K extends AnalysisTaskId>(task: K, user: string, signal?: AbortSignal): Promise<AnalysisResponse<K>> {
+    const spec = ANALYSIS_TASKS[task]
+    const { data, message } = await this.run(spec.schema, spec.system, user, signal, { refusal: 'The AI declined this analysis.', truncated: 'The AI reply was cut off. Analyse fewer pages at a time.' })
+    return { output: data as AnalysisResponse<K>['output'], model: this.model, servedByModel: message.model, promptVersion: spec.version, inputTokens: message.usage?.input_tokens ?? null, outputTokens: message.usage?.output_tokens ?? null }
   }
 
   /** One structured-output request: stream, check the stop reason, parse and validate with Zod. */

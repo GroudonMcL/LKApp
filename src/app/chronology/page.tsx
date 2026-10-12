@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Citation, KnowledgeItemCard, type CitationView, type KnowledgeItemView } from '@/components/knowledge-item'
+import { TimelineWritePanel } from '@/components/timeline-write-panel'
 import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 
@@ -383,6 +384,7 @@ function EntryList({ data }: { data: ChronologyView }) {
 }
 
 function Entry({ entry, all }: { entry: EntryView; all: EntryView[] }) {
+  const [addTo, setAddTo] = useState(false)
   const conflicts = entry.conflictsWith.map((id) => all.find((e) => e.id === id)).filter((e): e is EntryView => Boolean(e))
   return (
     <div className="chrono-entry">
@@ -447,6 +449,12 @@ function Entry({ entry, all }: { entry: EntryView; all: EntryView[] }) {
               {conflicts.map((c) => `${c.sources[0]?.resourceName ?? c.title}: “${c.date.original}”`).join('; ')}. Both are kept; decide in the Conflicts tab.
             </Notice>
           )}
+          {entry.origin !== 'native_timeline' && (entry.status === 'dated' || entry.date.kind === 'range') && (
+            <Button variant="ghost" onClick={() => setAddTo(!addTo)}>
+              {addTo ? 'Hide' : 'Add to a LegendKeeper timeline'}
+            </Button>
+          )}
+          {addTo && <TimelineWritePanel entryId={entry.id} defaultName={entry.title} />}
         </details>
       </div>
     </div>

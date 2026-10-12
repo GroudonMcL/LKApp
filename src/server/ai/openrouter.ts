@@ -1,7 +1,8 @@
 import 'server-only'
 import { z } from 'zod'
 import { AiDraftOutput } from '@/core/ai-output'
-import { AiError, type AiProvider, type TagSuggestResponse, type TranscribeRequest, type TranscribeResponse, type TransformRequest, type TransformResponse } from './provider'
+import { ANALYSIS_TASKS, type AnalysisTaskId } from './prompts/analysis'
+import { AiError, type AiProvider, type AnalysisResponse, type TagSuggestResponse, type TranscribeRequest, type TranscribeResponse, type TransformRequest, type TransformResponse } from './provider'
 import { PROMPT_VERSION, SYSTEM_PROMPT, buildUserPrompt } from './prompts/transform'
 import { TAGS_PROMPT_VERSION, TAGS_SYSTEM_PROMPT, TagSuggestionOutput, tagsUserPrompt, type TagPromptInput } from './prompts/tags'
 import { TRANSCRIBE_PROMPT_VERSION, TRANSCRIBE_SYSTEM_PROMPT, TranscriptionOutput, transcribeUserPrompt } from './prompts/transcribe'
@@ -139,6 +140,12 @@ export class OpenRouterProvider implements AiProvider {
   async suggestTags(request: TagPromptInput): Promise<TagSuggestResponse> {
     const result = await this.run(TagSuggestionOutput, 'tag_suggestions', TAGS_SYSTEM_PROMPT, tagsUserPrompt(request), { refusal: 'The AI declined to suggest tags for this page.', truncated: 'The AI reply was cut off. Try again.' })
     return { output: result.data, model: this.model, servedByModel: result.servedBy, promptVersion: TAGS_PROMPT_VERSION, inputTokens: result.inputTokens, outputTokens: result.outputTokens }
+  }
+
+  async analyse<K extends AnalysisTaskId>(task: K, user: string): Promise<AnalysisResponse<K>> {
+    const spec = ANALYSIS_TASKS[task]
+    const result = await this.run(spec.schema, spec.name, spec.system, user, { refusal: 'The AI declined this analysis.', truncated: 'The AI reply was cut off. Analyse fewer pages at a time.' })
+    return { output: result.data as AnalysisResponse<K>['output'], model: this.model, servedByModel: result.servedBy, promptVersion: spec.version, inputTokens: result.inputTokens, outputTokens: result.outputTokens }
   }
 
   /**
