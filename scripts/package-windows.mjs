@@ -88,18 +88,75 @@ if (process.platform === 'win32') {
 
 step('Adding the launcher files')
 const crlf = (text) => text.replace(/\r?\n/g, '\r\n')
+// Starts the app. When the app stops asking for an update (exit code 75), or a downloaded
+// update is waiting, it hands over to apply-update.cmd (run from a copy in %TEMP%, so this
+// file can be replaced while it runs).
 writeFileSync(
   join(out, 'Start LK Companion.cmd'),
   crlf(`@echo off
 title LK Companion
 cd /d "%~dp0"
+if defined LKC_HOME (set "LKC_DATA=%LKC_HOME%") else (set "LKC_DATA=%LOCALAPPDATA%\\LK Companion")
+if exist "%LKC_DATA%\\updates\\ready\\LK Companion\\apply-update.cmd" if not "%LKC_AFTER_UPDATE%"=="1" goto update
 "%~dp0node\\node.exe" "%~dp0launcher.mjs"
+if errorlevel 75 if not errorlevel 76 goto update
 if errorlevel 1 (
   echo.
   echo Something went wrong. The details above may help; the full log is in
-  echo %LOCALAPPDATA%\\LK Companion\\logs\\server.log
+  echo %LKC_DATA%\\logs\\server.log
   pause
 )
+exit /b
+:update
+copy /y "%LKC_DATA%\\updates\\ready\\LK Companion\\apply-update.cmd" "%TEMP%\\lkc-apply-update.cmd" >nul
+start "Updating LK Companion" "%TEMP%\\lkc-apply-update.cmd" "%~dp0." "%LKC_DATA%"
+exit /b
+`),
+)
+// Installs a downloaded update over this folder. Only the app's own files are replaced: the
+// app and node folders are mirrored, the files at the top are overwritten. Settings and data
+// live in %LOCALAPPDATA%\LK Companion and are not touched.
+writeFileSync(
+  join(out, 'apply-update.cmd'),
+  crlf(`@echo off
+setlocal
+title Updating LK Companion
+set "APPDIR=%~f1"
+set "DATADIR=%~f2"
+set "READY=%DATADIR%\\updates\\ready\\LK Companion"
+if not exist "%APPDIR%\\launcher.mjs" goto wrongfolder
+if not exist "%APPDIR%\\app\\server.js" goto wrongfolder
+if not exist "%READY%\\launcher.mjs" goto nothing
+echo Installing the new version of LK Companion...
+rem Give the old version a moment to close.
+ping -n 3 127.0.0.1 >nul
+robocopy "%READY%\\app" "%APPDIR%\\app" /MIR /R:5 /W:2 /NFL /NDL /NJH /NJS /NP >nul
+if errorlevel 8 goto failed
+robocopy "%READY%\\node" "%APPDIR%\\node" /MIR /R:5 /W:2 /NFL /NDL /NJH /NJS /NP >nul
+if errorlevel 8 goto failed
+robocopy "%READY%" "%APPDIR%" *.* /R:5 /W:2 /NFL /NDL /NJH /NJS /NP >nul
+if errorlevel 8 goto failed
+rmdir /s /q "%DATADIR%\\updates\\ready"
+del /q "%DATADIR%\\updates\\ready.json" 2>nul
+echo Done.
+if "%LKC_NO_RESTART%"=="1" exit /b 0
+set "LKC_AFTER_UPDATE=1"
+start "LK Companion" "%APPDIR%\\Start LK Companion.cmd"
+exit /b 0
+:failed
+echo.
+echo The update could not be installed (some files may be in use).
+echo Close LK Companion and double-click "Start LK Companion" again: it installs the update first.
+pause
+exit /b 1
+:wrongfolder
+echo This does not look like the LK Companion folder: %APPDIR%
+echo Nothing was changed.
+pause
+exit /b 1
+:nothing
+echo There is no downloaded update to install.
+exit /b 0
 `),
 )
 writeFileSync(
@@ -146,8 +203,12 @@ you can delete or replace this folder to update the app without losing anything.
 
 Updating
 --------
-Close the app, delete this folder (or keep it as a backup), unzip the new version, and
-start it the same way. Your settings and data stay where they are.
+When a new version is published, the app says so at the top of its window. Press
+"Update now": it downloads the new version, checks it, and restarts into it. Your
+settings and data stay where they are. (Settings > Updates can switch the check off.)
+
+You can also update by hand: close the app, delete this folder, unzip the new version
+and start it the same way.
 
 If Windows blocks the files
 ---------------------------
@@ -163,6 +224,16 @@ chose. Nothing else is sent anywhere.
 Node.js (in the "node" folder) is included under its own licence (node\\LICENSE).
 `),
 )
+
+// Which version this is: the app compares it with the latest published release.
+const build = Number(process.env.LKC_BUILD || process.env.GITHUB_RUN_NUMBER || 0)
+let commit = process.env.GITHUB_SHA || null
+if (!commit) {
+  const git = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' })
+  commit = git.status === 0 ? git.stdout.trim() : null
+}
+writeFileSync(join(out, 'version.json'), `${JSON.stringify({ version: pkg.version, build, commit, builtAt: new Date().toISOString() }, null, 2)}\n`)
+console.log(`Version ${pkg.version}, build ${build || 'local'}`)
 
 step('Checking the package contains no keys')
 const secrets = new Set()
@@ -205,4 +276,6 @@ console.log(`No keys or private files found (${needles.length} key value(s) chec
 step('Creating the zip')
 if (process.platform === 'win32') run('tar', ['-a', '-c', '-f', zipPath, '-C', join(root, 'dist'), 'LK Companion'], { shell: false })
 else run('zip', ['-q', '-r', '-X', zipPath, 'LK Companion'], { cwd: join(root, 'dist') })
-console.log(`\nDone: ${zipPath} (${(statSync(zipPath).size / 1_000_000).toFixed(1)} MB)`)
+const sha256 = createHash('sha256').update(readFileSync(zipPath)).digest('hex')
+writeFileSync(`${zipPath}.sha256`, `${sha256}  ${zipPath.split(/[\\/]/).pop()}\n`)
+console.log(`\nDone: ${zipPath} (${(statSync(zipPath).size / 1_000_000).toFixed(1)} MB, SHA-256 ${sha256})`)

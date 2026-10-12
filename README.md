@@ -74,10 +74,9 @@ returns data that is checked against a schema.
 
 The Windows package needs nothing else installed: it brings its own copy of Node.js.
 
-1. **Download** the latest package: on GitHub, open the repository → **Actions** → **Windows
-   package** → the newest run with a green tick → under **Artifacts**, click
-   **LK-Companion-Windows** (you need to be signed in to GitHub). If a release has been
-   published, you can download the zip from **Releases** instead.
+1. **Download** the latest package: on GitHub, open the repository → **Releases** → the latest
+   release → **LK-Companion-Windows-….zip**. (Each run of **Actions → Windows package** also
+   has it under **Artifacts**.)
 2. **Unblock** it: right-click the downloaded zip → **Properties** → tick **Unblock** → **OK**.
    (Windows marks files from the internet; this avoids security prompts for every file.)
 3. **Unzip** it somewhere permanent, e.g. `Documents\LK Companion`.
@@ -94,8 +93,25 @@ Keep the small window open while you use the app; close it to stop the app. Doub
 
 **Your data** (settings with your API keys, the database, backups of migrated pages, logs) is in
 `%LOCALAPPDATA%\LK Companion` (paste that into the Explorer address bar), not in the app folder.
-**To update**, close the app, delete the old app folder, and unzip the new package in its place;
-your data stays. Settings → *Where your data is kept* shows the exact folders.
+Settings → *Where your data is kept* shows the exact folders.
+
+### Updates
+
+Every change that passes the Windows checks on GitHub is published as a release (`build-<n>`).
+When the app starts it asks GitHub whether there is a newer build (at most every 6 hours) and,
+if there is, shows **A new version of LK Companion is available** at the top of the window:
+
+- **Update now** downloads it, checks it against its published SHA-256 checksum, unpacks it next
+  to your data, and restarts: *Start LK Companion* copies the new version over the app folder
+  and starts it again, and the window reloads by itself. Your settings and data are kept.
+- **Later** hides the message until the app is next opened. A downloaded update that was not
+  installed yet is installed the next time you start the app.
+- **Settings → Updates** shows your version and build, checks now, and switches the check off.
+
+The check sends nothing about you or your data; it is one request to GitHub's public API. It
+needs the LKApp repository to be **public** (a private repository's releases cannot be seen
+without signing in); until then Settings → Updates says so. To update by hand, close the app,
+delete the app folder and unzip the new package in its place.
 
 The package is built automatically on GitHub from the source code (`.github/workflows/windows-package.yml`):
 on a Windows machine, from a fresh checkout with no keys, after all tests pass, and it is
@@ -649,36 +665,42 @@ recipe.
 template, each approved page is created in LegendKeeper as a **copy of that template**
 (LegendKeeper's *create from template*): it gets the template's sidebar properties (such as
 the Tags box), icon, banner, colour and other tabs, exactly as the template has them. The app
-then fills the template's first page tab with your content, keeping the template's built-in
-boxes that the API cannot write (such as the Tags and Aliases rows of an infobox), and adds
-your tags and aliases to the template's own. The final preview says which template is used,
-which tab is filled and which built-in boxes are kept. To create plain pages with the copied
-layout instead (the behaviour before October 2026), edit the local template and untick
-**Create pages from the LegendKeeper template itself**.
+then **fills that copy in place**: the template's infobox keeps every field in the template's
+order (a field with no value stays, blank), its image slots and built-in boxes (Tags,
+Aliases) are left exactly as they are, the template's example text is removed or replaced,
+and your tags and aliases are added to the template's own. The final preview says which
+template is used, which tab is filled and which built-in parts are kept.
 
-If filling a page fails after LegendKeeper has made the copy (for example the connection
-drops), the page exists but is unfinished. The draft shows **Finish the page**, which repeats
-only the filling steps; the page is never created twice.
+The preview reads the template as it is in LegendKeeper (if you changed it since copying its
+layout, the copy is refreshed and the preview says so), and approving is refused if the
+template changes after the preview. Filling is done with small edits to the copy (one per
+infobox group or block that changes), because LegendKeeper refuses to take back an empty image
+slot in a whole-page write. If filling stops part-way (for example the connection drops), the
+page exists but is unfinished; the draft shows **Finish the page**, which carries on from where
+it stopped. The page is never created twice.
 
 Filling the layout works like this:
 
 - the first big heading becomes the page name;
 - each infobox row is filled from the field with the same name or alias (“Armour Class” → Armor
-  Class, “Strength” → STR, “Immunities” → damage and condition immunities, …); rows the
-  source has no value for are left out (and a group with no values at all is left out);
+  Class, “Strength” → STR, “Immunities” → damage and condition immunities, …), in the
+  template's order; rows the source has no value for stay, blank (the example value removed);
+  a “Source” row that matches no field gets where the content came from;
 - each titled text block (“Traits”, “Actions”, …) gets the section with the same heading, and
   is left out when the source has none; extra sections (e.g. “Reactions”) become new text
   blocks in the same style;
 - in statblock sections, each entry's name is bold (“**Nimble Feet.** The goblin …”); only title-like names are bolded, and the wording itself is never changed;
 - the description goes where the template has its placeholder text;
-- fields without a row (e.g. Size, Alignment, Gear) are added to the first or last row group;
+- fields the template has no row for (e.g. Size, Alignment, Gear) are added after the
+  template's own rows, at the end of its last group, so the template's order never changes;
 - template conventions are followed: `[Spell] Name`-style headings become the page name, other
   `[Class]`-style placeholders are replaced with it (“Becoming a [Class]” → “Becoming a Tidecaller”),
   a hidden box whose example text is “Description text” receives the description, a box whose
   example text starts with a field name (“Holy symbol description”) receives that field, the
   template's quote slot receives the source's first `> quotation`, and an empty tag-index collection
   is filled as the template's own note says (e.g. the class name and “Subclass”);
-- example tables and boxes that would be left empty are left out instead of copied as empty frames.
+- example tables and text boxes outside the infobox that would be left empty are left out
+  instead of copied as empty frames (fields inside the infobox stay, blank).
 
 Template rows the built-in page types have no field for (e.g. a god's *Portfolio* or a spell's
 *Casting Time*) are filled once you add those fields to the recipe (*Extra fields*); the

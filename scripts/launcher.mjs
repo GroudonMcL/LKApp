@@ -41,6 +41,9 @@ function settingFromFile(name) {
   }
 }
 
+/** The app's exit code asking "Start LK Companion" to install a downloaded update and restart. */
+const RESTART_FOR_UPDATE = 75
+
 const port = Number(process.env.LKC_PORT || settingFromFile('LKC_PORT') || (packaged ? 3127 : 3000))
 const url = `http://127.0.0.1:${port}`
 
@@ -67,6 +70,8 @@ function findBrowser() {
 
 function openWindow() {
   if (process.env.LKC_NO_BROWSER === '1') return
+  // After an update the app window that asked for it is still open and reloads by itself.
+  if (process.env.LKC_AFTER_UPDATE === '1') return
   const browser = findBrowser()
   if (browser) {
     // App mode: a window of its own, without tabs or an address bar.
@@ -134,7 +139,9 @@ async function main() {
     process.exit(1)
   }
 
-  const env = { ...process.env, NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1', PORT: String(port), HOSTNAME: '127.0.0.1' }
+  // LKC_APP_DIR tells the app where its package (and version.json) is; LKC_LAUNCHED that this
+  // launcher will apply a downloaded update when the app asks for a restart (exit code 75).
+  const env = { ...process.env, NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1', PORT: String(port), HOSTNAME: '127.0.0.1', LKC_LAUNCHED: '1', ...(packaged ? { LKC_APP_DIR: root } : {}) }
   let logFile = null
   if (home) {
     mkdirSync(join(home, 'logs'), { recursive: true })
@@ -156,6 +163,10 @@ async function main() {
   let exited = false
   server.on('exit', (code) => {
     exited = true
+    if (code === RESTART_FOR_UPDATE) {
+      say('', 'Installing the new version of LK Companion…')
+      process.exit(RESTART_FOR_UPDATE)
+    }
     say('', `LK Companion stopped${code ? ` (code ${code})` : ''}.${logFile ? ` Details are in ${logFile}` : ''}`)
     process.exit(code ?? 0)
   })

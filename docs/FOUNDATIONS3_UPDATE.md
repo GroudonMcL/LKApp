@@ -70,3 +70,18 @@ as in 4.0.0.
   delete)”** (`k35041a9turoeuz8xeekxmx7`). Read back: in the templates list at the top level,
   with the page's content, sidebar Tags box, icon and tag; the source page unchanged. **Delete
   that template in LegendKeeper when you like.**
+
+## Follow-up (same day): copies filled in place, and app updates
+
+- Pages from a LegendKeeper template are always created as copies of it (the plain-layout
+  option was removed, as asked).
+- The copy is now filled **in place** instead of having its tab rewritten: infobox fields keep
+  the template's order, fields without a value stay blank, fields the template has no row for
+  go after its own rows, example text is removed or replaced, and the template's empty image
+  slots and built-in boxes are left untouched. (Found live: LegendKeeper refuses to take back an
+  empty image slot in a whole-tab write, so those slots used to be lost.) Verified live with the
+  *Statblock* and *Magic Item* templates; an audit of all 7 templates found no example text left
+  on an empty page.
+- The Windows app offers new versions: each passing build is published as a release, the app
+  checks at startup and installs with one click (download, SHA-256 check, restart). Needs the
+  repository to be public.

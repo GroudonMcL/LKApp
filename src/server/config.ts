@@ -102,7 +102,7 @@ export const DEFAULT_AI_MODEL = 'claude-opus-5-5'
 export const DEFAULT_OPENROUTER_MODEL = 'openrouter/free'
 
 /** The environment plus the settings file (re-read when it changes). Tests pass their own environment. */
-function effectiveEnv(): NodeJS.ProcessEnv {
+export function effectiveEnv(): NodeJS.ProcessEnv {
   if (process.env.NODE_ENV === 'test') return process.env
   return { ...process.env, ...readSettingsFile(process.env) }
 }

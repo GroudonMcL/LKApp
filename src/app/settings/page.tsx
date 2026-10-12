@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Badge, Button, Card, ErrorBox, KeyValue, Loading, Notice, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
-import type { ConnectionSummary } from '@/lib/types'
+import type { ConnectionSummary, UpdateStatus } from '@/lib/types'
 import type { OpenRouterStatus } from '@/server/services/ai-status'
 
 type SettingsView = ConnectionSummary & { openrouterStatus: OpenRouterStatus | null }
@@ -116,6 +116,8 @@ export default function SettingsPage() {
             <p className="small muted">To back up everything, copy the database folder while the app is closed. Your LegendKeeper project itself lives on LegendKeeper.</p>
           </Card>
 
+          <UpdatesCard />
+
           <Card title="Limits and safety">
             <KeyValue
               rows={[
@@ -130,6 +132,56 @@ export default function SettingsPage() {
         </>
       )}
     </>
+  )
+}
+
+function UpdatesCard() {
+  const status = useApi<UpdateStatus>('/api/update')
+  const action = useAction()
+  const data = status.data
+  return (
+    <Card title="Updates">
+      <ErrorBox error={status.error ?? action.error} />
+      {data && (
+        <>
+          <KeyValue
+            rows={[
+              ['This version', `${data.current.version}, build ${data.current.build || 'local'}${data.current.commit ? ` (${data.current.commit.slice(0, 7)})` : ''}`],
+              ['Latest published', data.latest ? `build ${data.latest.build}${data.latest.publishedAt ? `, ${new Date(data.latest.publishedAt).toLocaleDateString('en-GB')}` : ''}` : data.current.packaged ? 'not known yet' : '—'],
+              ['Last checked', data.checkedAt ? new Date(data.checkedAt).toLocaleString('en-GB') : 'not yet'],
+            ]}
+          />
+          {data.note && <Notice>{data.note}</Notice>}
+          {data.error && <Notice tone="warning">{data.error}</Notice>}
+          {data.current.packaged && (
+            <>
+              {data.available || data.staged ? (
+                <Notice tone="info">A new version is available: use the banner at the top of the page to install it.</Notice>
+              ) : data.latest ? (
+                <p className="small">You have the latest version.</p>
+              ) : null}
+              <div className="row">
+                <Button busy={action.busy} onClick={() => void action.run(async () => status.setData(await api.get<UpdateStatus>('/api/update?refresh=1')))}>
+                  Check now
+                </Button>
+              </div>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={data.checksEnabled}
+                  onChange={(e) => void action.run(async () => { await api.post('/api/update', { action: 'setChecks', enabled: e.target.checked }); await status.reload() })}
+                />
+                <span>Check for a new version when the app starts (at most every 6 hours)</span>
+              </label>
+              <p className="small muted">
+                Checking asks GitHub (<code>{data.source}</code>) for the latest published version; nothing about you or your data is sent. An update is downloaded only when you
+                press <strong>Update now</strong>, checked against its published SHA-256 checksum, and installed by restarting. Your settings and data are kept.
+              </p>
+            </>
+          )}
+        </>
+      )}
+    </Card>
   )
 }
 

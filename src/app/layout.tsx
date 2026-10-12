@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { Nav } from '@/components/nav'
+import { UpdateBanner } from '@/components/update-banner'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <div className="shell">
           <Nav />
           <main id="main" className="main">
+            <UpdateBanner />
             {children}
           </main>
         </div>

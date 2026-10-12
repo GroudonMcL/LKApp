@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path'
  */
 
 /** Settings the app may write. Anything else in the file is left exactly as it is. */
-export const WRITABLE_SETTINGS = ['LEGENDKEEPER_API_KEY', 'OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'LKC_AI_PROVIDER', 'LKC_SANDBOX_PARENT_ID'] as const
+export const WRITABLE_SETTINGS = ['LEGENDKEEPER_API_KEY', 'OPENROUTER_API_KEY', 'ANTHROPIC_API_KEY', 'LKC_AI_PROVIDER', 'LKC_SANDBOX_PARENT_ID', 'LKC_UPDATE_CHECK'] as const
 export type WritableSetting = (typeof WRITABLE_SETTINGS)[number]
 
 export function appHome(env: NodeJS.ProcessEnv = process.env): string | null {

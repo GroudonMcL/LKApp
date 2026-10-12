@@ -244,3 +244,4 @@ blockquote.passage { margin: 0.2rem 0 0; padding: 0.35rem 0.6rem; border-left: 3
 .filter-grid label { display: grid; gap: 0.2rem; font-size: 0.85rem; color: var(--muted); }
 .filter-grid input, .filter-grid select { font: inherit; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
 textarea.code { width: 100%; min-height: 22rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
+.update-banner .notice { margin-top: 0; }

@@ -2,7 +2,7 @@
 #   pwsh scripts/smoke-test.ps1 -App <folder containing "Start LK Companion.cmd"> -DataHome <empty data folder>
 param([Parameter(Mandatory)][string]$App, [Parameter(Mandatory)][string]$DataHome)
 $ErrorActionPreference = 'Stop'
-foreach ($required in 'launcher.mjs', 'node\node.exe', 'app\server.js', 'app\.next\BUILD_ID', 'app\.next\static') {
+foreach ($required in 'launcher.mjs', 'version.json', 'apply-update.cmd', 'node\node.exe', 'app\server.js', 'app\.next\BUILD_ID', 'app\.next\static') {
   if (-not (Test-Path (Join-Path $App $required))) { throw "The package is missing $required" }
 }
 $env:LKC_HOME = $DataHome

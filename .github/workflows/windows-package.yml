@@ -1,9 +1,11 @@
 name: Windows package
 
 # Builds the portable Windows package (LK Companion + its own Node.js + launcher), starts it on
-# a Windows machine to check it works, and publishes it as a download on the run's page
-# ("Artifacts" → LK-Companion-Windows). Runs on every push to main or a claude/ branch, and
-# on demand from the Actions tab. Built from a fresh checkout: no keys or local data exist here.
+# a Windows machine to check it works (also the downloaded copy, and installing an update over
+# it), then publishes it: as a download on the run's page ("Artifacts" → LK-Companion-Windows)
+# and as a GitHub release `build-<n>` with the zip and its SHA-256 checksum. The installed app
+# offers each new release as an update. Runs on every push to main or a claude/ branch, and on
+# demand from the Actions tab. Built from a fresh checkout: no keys or local data exist here.
 
 on:
   push:
@@ -11,9 +13,9 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: Also publish it as a GitHub release
+        description: Publish it as a release (the app offers it as an update)
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -48,6 +50,12 @@ jobs:
       - run: npm ci
       - name: Build the package
         run: node scripts/package-windows.mjs
+        env:
+          LKC_BUILD: ${{ github.run_number }}
+      - name: Check the app can unpack this zip (it unpacks its own updates)
+        run: npx vitest run tests/unit/package-zip.test.ts tests/unit/updates.test.ts
+        env:
+          LKC_TEST_PACKAGE_ZIP: '1'
       - name: Start the packaged app on Windows and check it answers
         shell: pwsh
         run: |
@@ -63,15 +71,14 @@ jobs:
           # included. (The package never contains .env files: the build script removes them.)
           include-hidden-files: true
           retention-days: 90
-      - name: Publish a release (only when asked)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
-          $tag = "v$version-build$env:GITHUB_RUN_NUMBER"
-          gh release create $tag (Get-ChildItem dist\*.zip).FullName --target $env:GITHUB_SHA --title "LK Companion $version (build $env:GITHUB_RUN_NUMBER)" --notes "Windows package. Unzip it and double-click 'Start LK Companion'. See 'READ ME FIRST.txt' inside."
+      - name: Keep the zip for the release
+        uses: actions/upload-artifact@v4
+        with:
+          name: LK-Companion-Windows-zip
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+          retention-days: 7
 
   # Downloads the published artifact exactly as you would, and starts the app from it.
   check-download:
@@ -88,3 +95,28 @@ jobs:
       - name: Start the downloaded app and check it answers
         shell: pwsh
         run: ./scripts/smoke-test.ps1 -App (Join-Path $env:RUNNER_TEMP 'download') -DataHome (Join-Path $env:RUNNER_TEMP 'lkc-home')
+      - name: Install an update over an installed copy
+        shell: pwsh
+        run: ./scripts/update-test.ps1 -Package (Join-Path $env:RUNNER_TEMP 'download')
+
+  # Every change that passed the checks above becomes a release, which the installed app offers.
+  release:
+    needs: [package, check-download]
+    if: ${{ github.event_name == 'push' || inputs.release }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: LK-Companion-Windows-zip
+          path: release
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          git log -1 --format=%B "$GITHUB_SHA" > notes.md
+          printf '\n---\nWindows package, build %s. The app offers it as an update; or unzip it and double-click "Start LK Companion".\n' "$GITHUB_RUN_NUMBER" >> notes.md
+          gh release create "build-$GITHUB_RUN_NUMBER" release/*.zip release/*.zip.sha256 --target "$GITHUB_SHA" --title "LK Companion $version (build $GITHUB_RUN_NUMBER)" --notes-file notes.md --latest
