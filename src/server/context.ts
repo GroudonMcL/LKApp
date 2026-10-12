@@ -7,6 +7,14 @@ import { notConfigured } from './lk/errors'
 import { LEGENDKEEPER_SDK_VERSION, SdkConnector } from './lk/sdk-connector'
 import { AiError, type AiProvider } from './ai/provider'
 import { ClaudeProvider } from './ai/claude'
+import { FreeModelCatalogue, OpenRouterProvider } from './ai/openrouter'
+
+/** One shared copy of OpenRouter's model list (for the free-model check), kept across reloads. */
+function freeCatalogue(): FreeModelCatalogue {
+  const g = globalThis as unknown as { __lkcFreeCatalogue?: FreeModelCatalogue }
+  if (!g.__lkcFreeCatalogue) g.__lkcFreeCatalogue = new FreeModelCatalogue(fetch)
+  return g.__lkcFreeCatalogue
+}
 import { runtimeState } from './runtime'
 import { seedExamples } from './services/seed'
 import { log } from './log'
@@ -63,10 +71,23 @@ function createProductionContext(): AppContext {
       if (!current.ai.enabled) {
         throw new AiError('disabled', current.ai.disabledByEnv ? 'AI processing is switched off (LKC_AI_ENABLED=false).' : 'AI processing is switched off in Settings.')
       }
-      if (!current.ai.apiKey) throw new AiError('not_configured', 'No Anthropic API key is configured. Add ANTHROPIC_API_KEY to .env.local, or use the structural (no-AI) transformation.')
-      const cacheKey = `${runtimeState().credentialsGeneration}|${current.ai.model}|${current.ai.effort}`
+      if (!current.ai.apiKey) {
+        throw new AiError(
+          'not_configured',
+          current.ai.provider === 'openrouter'
+            ? 'No OpenRouter API key is configured. Add OPENROUTER_API_KEY to .env.local (or an Anthropic key), or use the structural (no-AI) transformation.'
+            : 'No Anthropic API key is configured. Add ANTHROPIC_API_KEY to .env.local, or use the structural (no-AI) transformation.',
+        )
+      }
+      const cacheKey = `${runtimeState().credentialsGeneration}|${current.ai.provider}|${current.ai.model}|${current.ai.effort}`
       if (!cachedAi || cachedAi.key !== cacheKey) {
-        cachedAi = { key: cacheKey, provider: new ClaudeProvider({ apiKey: current.ai.apiKey, model: current.ai.model, effort: current.ai.effort }) }
+        cachedAi = {
+          key: cacheKey,
+          provider:
+            current.ai.provider === 'openrouter'
+              ? new OpenRouterProvider({ apiKey: current.ai.apiKey, model: current.ai.model, catalogue: freeCatalogue() })
+              : new ClaudeProvider({ apiKey: current.ai.apiKey, model: current.ai.model, effort: current.ai.effort }),
+        }
       }
       return cachedAi.provider
     },

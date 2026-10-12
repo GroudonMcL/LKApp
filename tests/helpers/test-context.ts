@@ -23,7 +23,19 @@ export function createTestContext(options: { resources?: ConstructorParameters<t
   const aiMock = new MockAiProvider()
   const settings: AppConfig = {
     lk: { apiKey: 'lk_test_key_for_unit_tests', apiKeySource: 'env', baseUrl: null, allowWrites: true, sandboxParentId: 'sandbox0001', ...options.config?.lk },
-    ai: { apiKey: 'sk-ant-test-key-for-unit-tests', apiKeySource: 'env', enabled: true, disabledByEnv: false, model: 'mock-model', effort: 'high', ...options.config?.ai },
+    ai: {
+      provider: 'anthropic',
+      providerSource: 'env',
+      apiKey: 'sk-ant-test-key-for-unit-tests',
+      apiKeySource: 'env',
+      enabled: true,
+      disabledByEnv: false,
+      model: 'mock-model',
+      effort: 'high',
+      anthropic: { apiKey: 'sk-ant-test-key-for-unit-tests', apiKeySource: 'env', model: 'mock-model' },
+      openrouter: { apiKey: null, apiKeySource: null, model: 'openrouter/free' },
+      ...options.config?.ai,
+    },
     databasePath: ':memory:',
     limits: { maxUploadBytes: 200_000, maxSourceChars: 20_000, maxDocumentBytes: 5_000_000 },
   }

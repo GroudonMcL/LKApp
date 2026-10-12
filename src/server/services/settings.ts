@@ -1,6 +1,6 @@
 import 'server-only'
 import type { AppContext } from '../context'
-import { setRuntimeAiEnabled, setRuntimeKey } from '../runtime'
+import { setRuntimeAiEnabled, setRuntimeAiProvider, setRuntimeKey } from '../runtime'
 import { recordAudit } from './audit'
 import { ServiceError } from './errors'
 
@@ -11,7 +11,7 @@ import { ServiceError } from './errors'
  * database, not on disk, not in logs, and never sent back to the browser. They are lost
  * when the app restarts. The AI on/off preference is not secret and is saved.
  */
-export function setApiKey(ctx: AppContext, kind: 'legendkeeper' | 'anthropic', value: string | null) {
+export function setApiKey(ctx: AppContext, kind: 'legendkeeper' | 'anthropic' | 'openrouter', value: string | null) {
   if (value !== null) {
     const trimmed = value.trim()
     if (trimmed.length < 8 || trimmed.length > 500 || /\s/.test(trimmed)) throw new ServiceError(400, 'That does not look like an API key.')
@@ -24,4 +24,10 @@ export function setAiEnabled(ctx: AppContext, enabled: boolean) {
   ctx.repos.settings.set('ai.enabled', enabled)
   setRuntimeAiEnabled(enabled ? null : false)
   recordAudit(ctx, { operation: 'settings.ai_enabled', outcome: 'success', message: enabled ? 'AI processing switched on' : 'AI processing switched off' })
+}
+
+/** Chooses the AI service for this session (`null` = back to the .env.local choice). Not secret. */
+export function setAiProvider(ctx: AppContext, provider: 'openrouter' | 'anthropic' | null) {
+  setRuntimeAiProvider(provider)
+  recordAudit(ctx, { operation: 'settings.ai_provider', outcome: 'success', message: provider ? `AI provider set to ${provider} for this session` : 'AI provider back to the configured default' })
 }

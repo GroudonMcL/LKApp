@@ -104,10 +104,14 @@ export function connectionSummary(ctx: AppContext) {
     ai: {
       enabled: config.ai.enabled,
       disabledByEnv: config.ai.disabledByEnv,
+      provider: config.ai.provider,
+      providerSource: config.ai.providerSource,
       keyConfigured: config.ai.apiKey !== null,
       keySource: config.ai.apiKeySource,
       model: config.ai.model,
       effort: config.ai.effort,
+      anthropic: { keyConfigured: config.ai.anthropic.apiKey !== null, keySource: config.ai.anthropic.apiKeySource, model: config.ai.anthropic.model },
+      openrouter: { keyConfigured: config.ai.openrouter.apiKey !== null, keySource: config.ai.openrouter.apiKeySource, model: config.ai.openrouter.model },
     },
     limits: config.limits,
   }

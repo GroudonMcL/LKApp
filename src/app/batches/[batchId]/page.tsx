@@ -105,7 +105,7 @@ export default function BatchPage({ params }: { params: Promise<{ batchId: strin
         {(data.usage.input > 0 || data.usage.output > 0) && (
           <p className="small muted">
             AI usage: {data.usage.input.toLocaleString('en-GB')} input and {data.usage.output.toLocaleString('en-GB')} output tokens
-            {data.usage.estimatedCostUsd !== null ? <> — roughly ${data.usage.estimatedCostUsd.toFixed(2)} at {data.usage.model} list prices ({data.usage.pricesAsOf}); your Anthropic bill is authoritative.</> : '.'}
+            {data.usage.estimatedCostUsd === 0 ? <> — free model ({data.usage.model}), no charge.</> : data.usage.estimatedCostUsd !== null ? <> — roughly ${data.usage.estimatedCostUsd.toFixed(2)} at {data.usage.model} list prices ({data.usage.pricesAsOf}); your Anthropic bill is authoritative.</> : '.'}
           </p>
         )}
       </Card>

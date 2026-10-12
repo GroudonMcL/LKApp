@@ -13,6 +13,9 @@ import 'server-only'
 interface RuntimeState {
   lkApiKey: string | null
   anthropicApiKey: string | null
+  openrouterApiKey: string | null
+  /** The AI service chosen on the Settings page; `null` = follow the environment. */
+  aiProvider: 'openrouter' | 'anthropic' | null
   /** `false` when AI was switched off on the Settings page. `null` = follow the environment. */
   aiEnabled: boolean | null
   /** Bumped whenever credentials change, so cached clients are rebuilt. */
@@ -23,15 +26,22 @@ const KEY = Symbol.for('lk-companion.runtime')
 
 export function runtimeState(): RuntimeState {
   const g = globalThis as unknown as Record<symbol, RuntimeState | undefined>
-  if (!g[KEY]) g[KEY] = { lkApiKey: null, anthropicApiKey: null, aiEnabled: null, credentialsGeneration: 0 }
+  if (!g[KEY]) g[KEY] = { lkApiKey: null, anthropicApiKey: null, openrouterApiKey: null, aiProvider: null, aiEnabled: null, credentialsGeneration: 0 }
   return g[KEY]!
 }
 
-export function setRuntimeKey(kind: 'legendkeeper' | 'anthropic', value: string | null) {
+export function setRuntimeKey(kind: 'legendkeeper' | 'anthropic' | 'openrouter', value: string | null) {
   const state = runtimeState()
   const cleaned = value && value.trim() !== '' ? value.trim() : null
   if (kind === 'legendkeeper') state.lkApiKey = cleaned
-  else state.anthropicApiKey = cleaned
+  else if (kind === 'anthropic') state.anthropicApiKey = cleaned
+  else state.openrouterApiKey = cleaned
+  state.credentialsGeneration++
+}
+
+export function setRuntimeAiProvider(provider: 'openrouter' | 'anthropic' | null) {
+  const state = runtimeState()
+  state.aiProvider = provider
   state.credentialsGeneration++
 }
 

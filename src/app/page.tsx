@@ -100,7 +100,7 @@ function Dashboard({ data }: { data: StatusResponse }) {
             ) : (
               <Badge>Off</Badge>
             )}{' '}
-            Model <code>{data.connection.ai.model}</code>, effort {data.connection.ai.effort}
+            {data.connection.ai.provider === 'openrouter' ? 'OpenRouter, free models only' : 'Anthropic Claude'} · model <code>{data.connection.ai.model}</code>
           </p>
           <p className="muted small">Without AI you can still browse, audit tags and use structural (no-AI) imports.</p>
         </Card>

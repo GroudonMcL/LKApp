@@ -55,7 +55,9 @@ describe('secret handling', () => {
     expect(config.lk.allowWrites).toBe(true)
     expect(getConfig({ LKC_ALLOW_WRITES: 'false' } as unknown as NodeJS.ProcessEnv).lk.allowWrites).toBe(false)
     expect(config.ai.effort).toBe('high')
-    expect(config.ai.model).toBe('claude-opus-5-5')
+    // OpenRouter (free models) is the default AI service; Claude stays available.
+    expect(config.ai).toMatchObject({ provider: 'openrouter', model: 'openrouter/free' })
+    expect(config.ai.anthropic.model).toBe('claude-opus-5-5')
     expect(getConfig({ LKC_ALLOW_WRITES: 'TRUE' } as unknown as NodeJS.ProcessEnv).lk.allowWrites).toBe(true)
     expect(getConfig({ LKC_ALLOW_WRITES: 'yes' } as unknown as NodeJS.ProcessEnv).lk.allowWrites).toBe(false)
   })

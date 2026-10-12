@@ -16,7 +16,8 @@ documentation as <https://www.legendkeeper.com/developers/>.
 >
 > Additionally: request bodies are validated against the official OpenAPI schema
 > (*spec*) and the real SDK is tested against a local documented-API server (*contract*).
-> Not yet exercised live: the AI transformation (no Anthropic key was available).
+> AI: the OpenRouter free-model provider was exercised live on 12 Oct 2026 (see *AI provider:
+> OpenRouter* below); the Claude provider has not been (no Anthropic key was available).
 >
 > **Phase 2 (11 Oct 2026)**, same test project, all on throwaway pages under the sandbox page,
 > deleted afterwards:
@@ -116,6 +117,26 @@ Legend — **Verified**: *live* = against the real LegendKeeper test project; *s
   broken links, never “fixed” automatically.
 - Batch writes are paced at ~100/min and audit reads at ~4/s, below the 120 writes and 300
   requests per minute limits; no rate-limit errors were seen.
+
+## AI provider: OpenRouter (live, 12 Oct 2026)
+
+Checked against OpenRouter's public API and documentation
+(<https://openrouter.ai/docs/api/reference/limits>), with the owner's key:
+
+| Operation | Used for | Verified |
+| --- | --- | --- |
+| `GET /api/v1/models` (public) | The free check: a model is used only if listed with every price 0 | live |
+| `GET /api/v1/key` | Settings page: credit limit ($0 on the owner's key), `is_free_tier`, free requests used/left today (50 a day) | live |
+| `POST /api/v1/chat/completions` with `provider.max_price` all 0 | Every AI request; a paid model is refused by OpenRouter (404 “No endpoints found that satisfy the max price”) | live |
+| `response_format: json_schema` | Structured drafts, tag suggestions, transcription (validated again in code) | live |
+| `usage.cost`, `model` in the reply | Reply check: cost must be 0 (or absent with a `:free` model) | live (cost 0, served by a `:free` model) |
+
+- `openrouter/free` routes to an available free model; free model ids end in `:free`.
+- Live AI import: prose NPC → Character template draft in about 60 s
+  (`nvidia/nemotron-3-super-120b-a12b:free`), page created and read back. Quality notes: an
+  inferred value was marked as from the source, and one section was duplicated under two
+  headings; both were caught in review.
+- Scanned-PDF reading on OpenRouter is a paid plugin, so the app does not send PDFs there.
 
 ## Dependencies added in Phase 2
 

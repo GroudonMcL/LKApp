@@ -15,6 +15,8 @@ const PRICES: Record<string, { input: number; output: number }> = {
 }
 
 export function estimateCostUsd(model: string | null, inputTokens: number, outputTokens: number): number | null {
+  // OpenRouter free models: the app only uses them at a price of 0 (checked on every reply).
+  if (model && (model === 'openrouter/free' || /:free$/.test(model))) return 0
   const price = model ? PRICES[model] : undefined
   if (!price) return null
   return (inputTokens * price.input + outputTokens * price.output) / 1_000_000

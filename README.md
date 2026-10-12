@@ -40,11 +40,13 @@ ever returns data that is checked against a schema.
   content with a version check (and the refusal of a stale version), and restoring a page
   to its saved original (it reads back identical, block ids included). The live integration
   tests repeat these checks on demand (6/6 passing).
-- AI features (AI drafting, image transcription, AI tag suggestions) have been tested with
-  scripted (mocked) AI responses only. The first real AI call happens when you add your
-  Anthropic key and choose an AI option; each screen says what will be sent.
-- Cost estimates use list prices as of the date shown on screen; your Anthropic bill is
-  authoritative.
+- AI features use **OpenRouter's free models by default**, or Claude with an Anthropic key.
+  OpenRouter was verified live: an AI import of a prose NPC through the free router created
+  the page “Brother Hessan Tull” in the sandbox, at a reported cost of 0. The Claude
+  provider has been tested with scripted (mocked) AI responses only.
+- With OpenRouter the app only ever uses free models (see *Configuring the AI provider*).
+  With Claude, cost estimates use list prices as of the date shown on screen; your
+  Anthropic bill is authoritative.
 
 ---
 
@@ -54,7 +56,7 @@ ever returns data that is checked against a schema.
   No compilers or Windows build tools are needed: the database is Node's built-in SQLite. On Node 22 you may see a one-line
   “SQLite is an experimental feature” warning when the app starts; it is harmless.
 - **A LegendKeeper API key.** The project owner must be on a **paid plan** (a trial does not count).
-- **Optional: an Anthropic API key** (<https://console.anthropic.com>) for AI drafting, transcribing images and scanned PDFs, and AI tag suggestions. Without it, everything else works: structural drafting, audits, rule-based tagging and structural template migration need no AI.
+- **Optional: an AI key** for AI drafting, transcribing images, and AI tag suggestions. Either an **OpenRouter key** (<https://openrouter.ai/settings/keys>; the default, free models only, no payment needed) or an **Anthropic key** (<https://console.anthropic.com>; paid, and also transcribes scanned PDFs). Without one, everything else works: structural drafting, audits, rule-based tagging and structural template migration need no AI.
 
 ## Installation
 
@@ -84,10 +86,13 @@ you can also create or upgrade it explicitly with `npm run db:migrate`.
 | `LEGENDKEEPER_BASE_URL` | no | Leave empty for the real LegendKeeper. Set to `http://127.0.0.1:4010` to use the rehearsal server. |
 | `LKC_ALLOW_WRITES` | no | Creating pages (after your approval) is on by default. Set to `false` to make the app read-only. |
 | `LKC_SANDBOX_PARENT_ID` | no | The ID of a page for the optional throwaway write check. |
+| `OPENROUTER_API_KEY` | for AI | Your OpenRouter key (`sk-or-…`). Only free models are ever used with it. |
 | `ANTHROPIC_API_KEY` | for AI | Your Anthropic key (`sk-ant-…`). |
+| `LKC_AI_PROVIDER` | no | `openrouter` or `anthropic`. Default: OpenRouter when its key is set (or when neither key is set), otherwise Anthropic. The Settings page can override it until restart. |
+| `LKC_OPENROUTER_MODEL` | no | The free OpenRouter model. Default: `openrouter/free` (OpenRouter picks an available free model). Any other value must end in `:free`; anything else is refused. |
 | `LKC_AI_ENABLED` | no | `false` switches AI off completely. Default: on. |
 | `LKC_AI_MODEL` | no | Claude model. Default: `claude-opus-5-5`. |
-| `LKC_AI_EFFORT` | no | `low`, `medium`, `high` (default), `xhigh` or `max`. Higher = more thorough and more expensive. |
+| `LKC_AI_EFFORT` | no | Claude only: `low`, `medium`, `high` (default), `xhigh` or `max`. Higher = more thorough and more expensive. |
 | `LKC_DATABASE_PATH` | no | Local database file. Default: `./data/lk-companion.db`. |
 | `LKC_MAX_UPLOAD_BYTES` | no | Largest upload. Default 2,000,000. |
 | `LKC_MAX_SOURCE_CHARS` | no | Longest source per import. Default 150,000 characters (bigger sources are split, never truncated). |
@@ -113,21 +118,63 @@ Choose the lowest role that does what you need. Revoke the key in the same place
 
 ## Configuring the AI provider
 
-Add `ANTHROPIC_API_KEY` to `.env.local`. The default model is Claude Opus 5.5 at "high"
-effort. The app enables Anthropic's server-side refusal fallback, so if a request is declined
-by a safety filter it can be answered by a fallback model; the draft records which model
-actually answered.
+The app can use either of two AI providers. Choose on the **Settings** page (until restart)
+or with `LKC_AI_PROVIDER` in `.env.local`.
+
+### OpenRouter, free models only (the default)
+
+1. Create a key at <https://openrouter.ai/settings/keys>. Leave its credit limit at **$0**.
+2. Put it in `.env.local` as `OPENROUTER_API_KEY=sk-or-…` and restart.
+
+The app uses only free models, and checks this three times for every request:
+
+1. **Before sending**: the model must be `openrouter/free` or end in `:free`, *and*
+   OpenRouter's live model list must show it with every price at 0. Otherwise nothing is sent.
+2. **In the request**: every request tells OpenRouter the most it may cost is 0
+   (`provider.max_price`), so OpenRouter refuses rather than route to a paid provider.
+3. **In the reply**: a reply that reports any cost, or comes from a model not marked free, is
+   discarded and the job stops with an error.
+
+On your account's side, a key with a **$0 credit limit** and an account with **no purchased
+credits** cannot pay for anything anyway. The Settings page shows the key's limit, account
+tier and free requests left today (read from OpenRouter; the key itself is never shown).
+
+Things to know about free models:
+
+- **Limits**: OpenRouter allows 20 free requests a minute and **50 a day** on accounts that
+  have never bought credits (1,000 a day after buying at least $10 of credits, which the app
+  still would not spend). One AI draft is usually 1 request (2 if the reply needs a retry), so
+  keep a batch's AI limit (25 by default) within what is left today.
+- **Privacy**: free model providers may log prompts and use them for training. Only send
+  material you are happy to share. If you turn off free endpoints that log or train in
+  OpenRouter → Settings → Privacy, there may be no free model left to answer.
+- **Quality**: free models are smaller and slower than Claude (a single NPC took about a
+  minute). Review drafts carefully: in testing, a free model marked an inferred value
+  (gender from “he”) as stated in the source and repeated a section under two headings.
+- **Images**: transcribed with `openrouter/free`, which picks a free model that reads images.
+  **Scanned PDFs** are not transcribed (OpenRouter's PDF reading for scans is paid); export
+  the pages as images, or use an Anthropic key.
+- Which free model answered is recorded on each draft and job.
+
+### Anthropic (Claude)
+
+Add `ANTHROPIC_API_KEY` to `.env.local` and set `LKC_AI_PROVIDER=anthropic` (or choose
+Anthropic on the Settings page; with only an Anthropic key it is used automatically). The
+default model is Claude Opus 5.5 at "high" effort. This is paid per use. The app enables
+Anthropic's server-side refusal fallback, so if a request is declined by a safety filter it
+can be answered by a fallback model; the draft records which model actually answered.
 
 **What is sent to the AI** — only when you choose an AI option, and only for that job:
 
 | You choose | What is sent |
 | --- | --- |
 | *Run AI transformation* (import) or AI drafting (batch) | The record's source text, the recipe's instructions and field list, the template's section headings, and the **names** of your existing tags. At most the batch's AI limit per run (25 by default). |
-| *Transcribe with AI* on an image or scanned PDF in a batch | That file. |
+| *Transcribe with AI* on an image or scanned PDF in a batch | That file (images only with OpenRouter). |
 | AI tag suggestions (switched on in the tagging settings) | Each selected page's name, place in the tree, current tags and up to 6,000 characters of its text, with your allowed tag names. |
 | AI drafting in a template migration | Each selected page's readable text, the recipe's instructions and a rule to reorganise, not rewrite. |
 
-Never your API keys, never anything automatically, and never pages you did not select. Results
+It goes to the provider chosen on the Settings page: OpenRouter (which passes it to the free
+model's provider) or Anthropic. Never your API keys, never anything automatically, and never pages you did not select. Results
 are cached by content fingerprint, so an unchanged input is not sent twice. Turn AI off on
 the Settings page or with `LKC_AI_ENABLED=false`; everything that does not need AI keeps working.
 
@@ -363,7 +410,7 @@ Browser (React pages)  ──fetch──▶  /api/* route handlers  (thin: valid
 
 - **`src/core/`** — the canonical page model, page types, recipes, templates, extraction (text/Markdown/JSON, with a registry for future PDF/DOCX/HTML/OCR extractors), tagging, reference resolution, validation, structural transformer, AI output schema and grounding checks. No network, no database: easy to test.
 - **`src/server/lk/`** — the only code that talks to LegendKeeper. `connector.ts` is the interface the rest of the app depends on; `sdk-connector.ts` implements it with the official SDK; `render.ts` turns a canonical draft into LegendKeeper blocks using the SDK's builders; `errors.ts` maps SDK errors to plain-English messages. The interface has exactly three writes: `createPage`, `updateResourceTags` and `replaceDocumentBlocks` (always with a version check).
-- **`src/server/ai/`** — the AI provider interface, the Claude implementation (structured outputs, validated again in code), and the version-controlled prompt (`prompts/transform.ts`, with `PROMPT_VERSION`).
+- **`src/server/ai/`** — the AI provider interface, the OpenRouter implementation (free models only, `openrouter.ts`), the Claude implementation (structured outputs, validated again in code), and the version-controlled prompt (`prompts/transform.ts`, with `PROMPT_VERSION`).
 - **`src/server/services/`** — connection, discovery (scan/browse), tags, recipes/templates, imports, transform, drafts, write, settings, audit; Phase 2: `batch-engine` (background work per job, pacing, cancel), `import-batches`, `wiki-health`, `tagging-batches`, `migrations`, `page-scope` (page selection), `review-queue`.
 - **`src/server/lk/page-reader.ts`** — reads an existing page for migration (text → Markdown; everything else kept as is). **`src/core/migration-check.ts`** — the word-for-word, number and link comparisons. **`src/core/audit-checks.ts`**, **`src/core/tag-assistant.ts`**, **`src/core/matching.ts`**, **`src/core/records.ts`** — the pure logic of audits, tag suggestions, duplicate matching and record extraction.
 - **`src/server/extraction/`** — reading PDF (unpdf), Word `.docx` (mammoth, no external file access) and HTML on your computer.
@@ -465,7 +512,7 @@ Historical event. Each keeps game mechanics separate from lore.
 ## Tests
 
 ```sh
-npm test               # 206 unit and contract tests; never touch LegendKeeper or Anthropic
+npm test               # 216 unit and contract tests; never touch LegendKeeper, OpenRouter or Anthropic
 npm run typecheck      # TypeScript
 npm run check          # both
 ```
@@ -566,6 +613,13 @@ supported part and saying so on screen.
 | *The draft changed after the final preview* | Open the final preview again and re-approve. |
 | *The AI reply did not match the expected structure* / *was cut off* | Run it again; for long sources, split them. Or use the structural transformation. |
 | *No Anthropic API key is configured* | Add `ANTHROPIC_API_KEY`, or use *Run structural (no AI)*. |
+| *No OpenRouter API key is configured* | Add `OPENROUTER_API_KEY`, choose Anthropic on the Settings page, or use *Run structural (no AI)*. |
+| *The free-model limit was reached* (OpenRouter 429) | You have used today's free requests (50 a day) or sent too many in a minute. Wait and try later; the Settings page shows how many are left today. Or use the structural option. |
+| *…is not a free OpenRouter model* / *…lists … with a price* | `LKC_OPENROUTER_MODEL` names a paid model. Use `openrouter/free` or a model ending in `:free`. |
+| *No free provider is available for this model right now* | Every free provider for it is busy or gone. Try later, or use `openrouter/free`. |
+| *OpenRouter has no free endpoint that matches your privacy settings* | OpenRouter → Settings → Privacy blocks the free endpoints. Allow them (they may log prompts) or use Anthropic. |
+| *OpenRouter refused the request for lack of credit* (402) | Your OpenRouter balance is negative. Check the account; the app never buys anything. |
+| *OpenRouter reported a cost…* / *…not marked free* | The safety check discarded the reply and stopped the job. Check your OpenRouter activity page and keep the key's credit limit at $0. |
 | A request ID is shown | Quote it to LegendKeeper support; it identifies their server log entry. |
 | A batch says *interrupted* | The app stopped mid-job. Open the job and continue; writes that were in flight are checked first. |
 | *The page changed in LegendKeeper after the analysis / since the suggestion* | Someone edited the page. Compare (or suggest) again, check, and approve again. |
