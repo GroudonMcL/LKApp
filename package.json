@@ -9,6 +9,8 @@
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "app": "node scripts/launcher.mjs",
+    "package:windows": "node scripts/package-windows.mjs",
     "dev": "node scripts/next.mjs dev --hostname 127.0.0.1 --port 3000",
     "build": "node scripts/next.mjs build",
     "start": "node scripts/next.mjs start --hostname 127.0.0.1 --port 3000",

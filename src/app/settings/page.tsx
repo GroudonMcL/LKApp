@@ -17,7 +17,10 @@ export default function SettingsPage() {
     <>
       <div className="page-header">
         <h1>Settings</h1>
-        <p>Most settings live in <code>.env.local</code> (see the README). The options below change only how this running app behaves.</p>
+        <p>
+          Your API keys and the AI choice are saved in a settings file on this computer when you press <em>Save on this computer</em>. Other options are described in
+          the README.
+        </p>
       </div>
       <ErrorBox error={error ?? action.error} />
       {loading && !data && <Loading />}
@@ -27,28 +30,27 @@ export default function SettingsPage() {
             <p>
               {data.ai.enabled ? <Badge tone="good">On</Badge> : <Badge>Off</Badge>} Using{' '}
               <strong>{data.ai.provider === 'openrouter' ? 'OpenRouter (free models only)' : 'Anthropic (Claude)'}</strong> · model <code>{data.ai.model}</code> · key{' '}
-              {data.ai.keyConfigured ? <Badge tone="good">{data.ai.keySource === 'memory' ? 'this session' : '.env.local'}</Badge> : <Badge tone="warn">not set</Badge>}
+              {data.ai.keyConfigured ? <Badge tone="good">{data.ai.keySource === 'memory' ? 'this session' : 'saved'}</Badge> : <Badge tone="warn">not set</Badge>}
               {data.ai.provider === 'anthropic' && <> · effort {data.ai.effort}</>}
             </p>
             <div className="row">
               <span className="small">AI service:</span>
               <label className="check">
-                <input type="radio" name="provider" checked={data.ai.provider === 'openrouter'} disabled={action.busy} onChange={() => post({ action: 'setAiProvider', provider: 'openrouter' })} />
+                <input type="radio" name="provider" checked={data.ai.provider === 'openrouter'} disabled={action.busy} onChange={() => post({ action: 'setAiProvider', provider: 'openrouter', persist: true })} />
                 <span>OpenRouter, free models {data.ai.openrouter.keyConfigured ? '' : '(no key)'}</span>
               </label>
               <label className="check">
-                <input type="radio" name="provider" checked={data.ai.provider === 'anthropic'} disabled={action.busy} onChange={() => post({ action: 'setAiProvider', provider: 'anthropic' })} />
+                <input type="radio" name="provider" checked={data.ai.provider === 'anthropic'} disabled={action.busy} onChange={() => post({ action: 'setAiProvider', provider: 'anthropic', persist: true })} />
                 <span>Anthropic Claude {data.ai.anthropic.keyConfigured ? '' : '(no key)'}</span>
               </label>
-              {data.ai.providerSource === 'settings' && (
-                <Button variant="ghost" busy={action.busy} onClick={() => post({ action: 'setAiProvider', provider: null })}>
-                  Back to the .env.local choice
+              {data.ai.providerSource !== 'default' && (
+                <Button variant="ghost" busy={action.busy} onClick={() => post({ action: 'setAiProvider', provider: null, persist: true })}>
+                  Back to the default choice
                 </Button>
               )}
             </div>
             <p className="small muted">
-              The choice made here lasts until the app restarts. To make it permanent, set <code>LKC_AI_PROVIDER=openrouter</code> or <code>anthropic</code> in .env.local. Without that,
-              OpenRouter is used whenever its key is set.
+              The choice is saved on this computer. By default, OpenRouter is used whenever its key is set.
             </p>
             {data.ai.provider === 'openrouter' && (
               <>
@@ -92,14 +94,26 @@ export default function SettingsPage() {
             </ul>
           </Card>
 
-          <Card title="API keys for this session">
-            <Notice tone="warning">
-              Keys entered here are kept <strong>in this server’s memory only</strong>: not saved to disk, not stored in the database, never shown again, and forgotten when the app
-              restarts. For a permanent setup, put them in <code>.env.local</code> instead. A key entered here takes priority over the one in .env.local until you clear it.
-            </Notice>
-            <KeyForm label="LegendKeeper API key" kind="legendkeeper" source={data.legendkeeper.keySource} busy={action.busy} onSave={(value) => post({ action: 'setKey', kind: 'legendkeeper', value })} onClear={() => post({ action: 'clearKey', kind: 'legendkeeper' })} />
-            <KeyForm label="OpenRouter API key" kind="openrouter" source={data.ai.openrouter.keySource} busy={action.busy} onSave={(value) => post({ action: 'setKey', kind: 'openrouter', value })} onClear={() => post({ action: 'clearKey', kind: 'openrouter' })} />
-            <KeyForm label="Anthropic API key" kind="anthropic" source={data.ai.anthropic.keySource} busy={action.busy} onSave={(value) => post({ action: 'setKey', kind: 'anthropic', value })} onClear={() => post({ action: 'clearKey', kind: 'anthropic' })} />
+          <Card title="API keys">
+            <p className="small">
+              <strong>Save on this computer</strong> keeps a key in your settings file (<code>{data.local.settingsFile}</code>), so you enter it once. It is never stored in
+              the app&apos;s database, shown again, logged or sent anywhere except to its own service. Anyone who can read your user files can read that file, so keep your
+              computer account private. <strong>Use for this session only</strong> keeps the key in memory until the app is closed.
+            </p>
+            <KeyForm label="LegendKeeper API key" kind="legendkeeper" source={data.legendkeeper.keySource} busy={action.busy} post={post} />
+            <KeyForm label="OpenRouter API key (free AI models)" kind="openrouter" source={data.ai.openrouter.keySource} busy={action.busy} post={post} />
+            <KeyForm label="Anthropic API key (Claude, paid)" kind="anthropic" source={data.ai.anthropic.keySource} busy={action.busy} post={post} />
+          </Card>
+
+          <Card title="Where your data is kept">
+            <KeyValue
+              rows={[
+                ['Settings file (keys, AI choice)', <code key="s">{data.local.settingsFile}</code>],
+                ['Database and backups folder', <code key="d">{data.local.dataFolder}</code>],
+                ['Installed as', data.local.packaged ? 'the Windows package (your data stays when you update the app)' : 'the source folder'],
+              ]}
+            />
+            <p className="small muted">To back up everything, copy the database folder while the app is closed. Your LegendKeeper project itself lives on LegendKeeper.</p>
           </Card>
 
           <Card title="Limits and safety">
@@ -119,31 +133,41 @@ export default function SettingsPage() {
   )
 }
 
-function KeyForm({ label, kind, source, busy, onSave, onClear }: { label: string; kind: string; source: string | null; busy: boolean; onSave: (value: string) => void; onClear: () => void }) {
+function KeyForm({ label, kind, source, busy, post }: { label: string; kind: string; source: string | null; busy: boolean; post: (body: unknown) => void }) {
   const [value, setValue] = useState('')
+  const save = (persist: boolean) => {
+    if (!value.trim()) return
+    post({ action: 'setKey', kind, value: value.trim(), persist })
+    setValue('')
+  }
   return (
     <form
       className="field"
       onSubmit={(e) => {
         e.preventDefault()
-        if (value.trim()) onSave(value.trim())
-        setValue('')
+        save(true)
       }}
     >
       <label htmlFor={`key-${kind}`}>
         {label}{' '}
-        <span className="hint">
-          currently: {source === 'memory' ? 'set for this session' : source === 'env' ? 'from .env.local' : 'not set'}
-        </span>
+        <span className="hint">currently: {source === 'memory' ? 'set for this session only' : source === 'env' ? 'saved' : 'not set'}</span>
       </label>
       <div className="row">
-        <input id={`key-${kind}`} type="password" autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} style={{ maxWidth: '28rem' }} />
-        <Button type="submit" busy={busy} disabled={!value.trim()}>
-          Use for this session
+        <input id={`key-${kind}`} type="password" autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} style={{ maxWidth: '28rem' }} placeholder={source ? 'Enter a new key to replace it' : 'Paste the key here'} />
+        <Button type="submit" variant="primary" busy={busy} disabled={!value.trim()}>
+          Save on this computer
+        </Button>
+        <Button busy={busy} disabled={!value.trim()} onClick={() => save(false)}>
+          Use for this session only
         </Button>
         {source === 'memory' && (
-          <Button variant="ghost" onClick={onClear}>
+          <Button variant="ghost" onClick={() => post({ action: 'clearKey', kind })}>
             Forget session key
+          </Button>
+        )}
+        {source === 'env' && (
+          <Button variant="ghost" onClick={() => post({ action: 'clearKey', kind, persist: true })}>
+            Remove saved key
           </Button>
         )}
       </div>

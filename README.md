@@ -63,7 +63,43 @@ returns data that is checked against a schema.
 
 ---
 
-## Prerequisites
+## Installing on Windows (recommended)
+
+The Windows package needs nothing else installed: it brings its own copy of Node.js.
+
+1. **Download** the latest package: on GitHub, open the repository → **Actions** → **Windows
+   package** → the newest run with a green tick → under **Artifacts**, click
+   **LK-Companion-Windows** (you need to be signed in to GitHub). If a release has been
+   published, you can download the zip from **Releases** instead.
+2. **Unblock** it: right-click the downloaded zip → **Properties** → tick **Unblock** → **OK**.
+   (Windows marks files from the internet; this avoids security prompts for every file.)
+3. **Unzip** it somewhere permanent, e.g. `Documents\LK Companion`.
+4. **Start** it: double-click **Start LK Companion**. A small window says when the app is
+   running, and the app opens in its own window (Microsoft Edge's app mode; Chrome or your
+   default browser if Edge is missing). If Windows asks whether to run the file, choose **Run**
+   (or **More info → Run anyway**).
+5. The first time, the dashboard asks for your **LegendKeeper API key** and, optionally, a free
+   **OpenRouter key**; they are saved on this computer. That's all.
+
+Keep the small window open while you use the app; close it to stop the app. Double-click
+*Start LK Companion* again to reopen the app window. **Create desktop shortcut** puts an
+*LK Companion* icon on your desktop (it starts the small window minimised).
+
+**Your data** (settings with your API keys, the database, backups of migrated pages, logs) is in
+`%LOCALAPPDATA%\LK Companion` (paste that into the Explorer address bar), not in the app folder.
+**To update**, close the app, delete the old app folder, and unzip the new package in its place;
+your data stays. Settings → *Where your data is kept* shows the exact folders.
+
+The package is built automatically on GitHub from the source code (`.github/workflows/windows-package.yml`):
+on a Windows machine, from a fresh checkout with no keys, after all tests pass, and it is
+started and checked there before it is published. To build it yourself:
+`npm ci && npm run package:windows` (output in `dist/`).
+
+## Running from the source folder
+
+This is for development, or for macOS and Linux.
+
+### Prerequisites
 
 - **Node.js 22.13 or newer** (22 LTS or 24 LTS). Check with `node --version`. Download from <https://nodejs.org>.
   No compilers or Windows build tools are needed: the database is Node's built-in SQLite. On Node 22 you may see a one-line
@@ -71,7 +107,7 @@ returns data that is checked against a schema.
 - **A LegendKeeper API key.** The project owner must be on a **paid plan** (a trial does not count).
 - **Optional: an AI key** for AI drafting, transcribing images, and AI tag suggestions. Either an **OpenRouter key** (<https://openrouter.ai/settings/keys>; the default, free models only, no payment needed) or an **Anthropic key** (<https://console.anthropic.com>; paid, and also transcribes scanned PDFs). Without one, everything else works: structural drafting, audits, rule-based tagging and structural template migration need no AI.
 
-## Installation
+### Installation
 
 ```sh
 git clone <your repository URL> lk-companion
@@ -89,9 +125,13 @@ open it from your editor (e.g. VS Code: *File → Open File*) or with `notepad .
 Then edit `.env.local` (next section). The database is created automatically on first start;
 you can also create or upgrade it explicitly with `npm run db:migrate`.
 
-## Configuration (`.env.local`)
+### Configuration (settings file)
 
-`.env.local` is ignored by Git, so your keys never get committed. Restart the app after changing it.
+When running from the source folder, settings live in `.env.local` (ignored by Git, so your keys
+never get committed). In the Windows package the same settings live in
+`%LOCALAPPDATA%\LK Companion\settings.env` (or `<LKC_HOME>/settings.env` when `LKC_HOME` is
+set). Keys and the AI choice saved from the app's Settings page are written to that file and
+apply at once; for other changes, restart the app.
 
 | Variable | Required | Meaning |
 | --- | --- | --- |
@@ -106,21 +146,23 @@ you can also create or upgrade it explicitly with `npm run db:migrate`.
 | `LKC_AI_ENABLED` | no | `false` switches AI off completely. Default: on. |
 | `LKC_AI_MODEL` | no | Claude model. Default: `claude-opus-5-5`. |
 | `LKC_AI_EFFORT` | no | Claude only: `low`, `medium`, `high` (default), `xhigh` or `max`. Higher = more thorough and more expensive. |
-| `LKC_DATABASE_PATH` | no | Local database file. Default: `./data/lk-companion.db`. |
+| `LKC_DATABASE_PATH` | no | Local database file. Default: `./data/lk-companion.db`, or `<LKC_HOME>/lk-companion.db`. |
+| `LKC_HOME` | no | A folder for the settings file, database and logs (the Windows package sets it to `%LOCALAPPDATA%\LK Companion`). |
+| `LKC_PORT` | no | Port used by the launcher (`npm run app`, *Start LK Companion*). Default 3127 for the package, 3000 for the source folder. |
 | `LKC_MAX_UPLOAD_BYTES` | no | Largest upload. Default 2,000,000. |
 | `LKC_MAX_SOURCE_CHARS` | no | Longest source per import. Default 150,000 characters (bigger sources are split, never truncated). |
 | `LKC_MAX_DOCUMENT_BYTES` | no | Largest file in a batch import (PDF, Word, HTML, images). Default 25,000,000. Each file is uploaded separately, so a batch can hold many such files. |
 
-You can also enter API keys on the **Settings** page. Those are kept **in memory only**: not
-written to disk or the database, never shown again, and forgotten on restart. `.env.local`
-is the permanent option; anyone who can read that file can read your keys, so keep it on
-your own computer.
+You can also enter API keys on the **Settings** page: **Save on this computer** writes them to
+the settings file above; **Use for this session only** keeps them in memory until the app
+stops. Either way they are never stored in the database, never shown again, and never logged.
+Anyone who can read the settings file can read your keys, so keep it on your own computer.
 
 ## Creating a LegendKeeper API key
 
 1. In LegendKeeper, open your project → **Project Settings → Developers → API Keys**. You need the ADMIN role to create keys.
 2. Name it (e.g. "LK Companion"), choose a role, create it, and **copy the secret now** — it is shown only once.
-3. Put it in `.env.local` as `LEGENDKEEPER_API_KEY=lk_…`.
+3. Paste it into the app (dashboard on first start, or **Settings → API keys → Save on this computer**). From the source folder you can instead put it in `.env.local` as `LEGENDKEEPER_API_KEY=lk_…`.
 
 **Which role?** A key acts as you, with the *lower* of the key's role and your role in the project.
 
@@ -137,7 +179,7 @@ or with `LKC_AI_PROVIDER` in `.env.local`.
 ### OpenRouter, free models only (the default)
 
 1. Create a key at <https://openrouter.ai/settings/keys>. Leave its credit limit at **$0**.
-2. Put it in `.env.local` as `OPENROUTER_API_KEY=sk-or-…` and restart.
+2. Paste it into **Settings → API keys → Save on this computer** (or the first-start screen). From the source folder you can instead put it in `.env.local` as `OPENROUTER_API_KEY=sk-or-…` and restart.
 
 The app uses only free models, and checks this three times for every request:
 
@@ -197,19 +239,21 @@ model's provider) or Anthropic. Never your API keys, never anything automaticall
 are cached by content fingerprint, so an unchanged input is not sent twice. Turn AI off on
 the Settings page or with `LKC_AI_ENABLED=false`; everything that does not need AI keeps working.
 
-## Running the app
+## Running the app (source folder)
 
 ```sh
-npm run dev          # development mode, http://127.0.0.1:3000
+npm run app          # installs and builds when needed, starts the app, and opens it in its own window
 # or
+npm run dev          # development mode, http://127.0.0.1:3000
 npm run build && npm start   # production mode, http://127.0.0.1:3000
 ```
 
-Open <http://127.0.0.1:3000>. The app only accepts connections from your own computer.
+On Windows, double-clicking **Start LK Companion.cmd** in the source folder does the same as
+`npm run app` (Node.js must be installed). The app only accepts connections from your own computer.
 
 ## First run, step by step
 
-1. Open the app. The connection is tested automatically; the dashboard and **Connection** page show your project name and ID.
+1. Open the app. If no LegendKeeper key is set yet, the dashboard asks for it (and optionally an OpenRouter key) and saves it on this computer. The connection is tested automatically; the dashboard and **Connection** page show your project name and ID.
 2. **Page browser** → *Scan project*. This copies page names, parents, tags and aliases (no page content) into the local index. You can pause and resume it.
 3. **Tag audit** — see tags and pages without tags.
 4. **Recipes & templates → Copy from LegendKeeper** — copy your template (e.g. *Statblock*). This also makes a recipe of the same name. Open the recipe and set a *default parent* (where new pages go), e.g. a sandbox page while testing. *Allow creation after approval* is on by default.
@@ -772,7 +816,7 @@ supported part and saying so on screen.
 
 | Message | What to do |
 | --- | --- |
-| *No LegendKeeper API key is configured* | Add `LEGENDKEEPER_API_KEY` to `.env.local` and restart. |
+| *No LegendKeeper API key is configured* | Enter it on the dashboard or under Settings → API keys (*Save on this computer*). |
 | *LegendKeeper rejected the API key* (401) | The key is wrong, revoked or expired. Create a new one. |
 | *API keys need the project owner to be on a paid plan* (402) | The owner's plan must be paid (not a trial). |
 | *…refused the request because the key's role…* (403) | Use an ADMIN key for tags or top-level pages, or create under a parent you can edit. |
@@ -796,7 +840,7 @@ supported part and saying so on screen.
 | *Tick every change you have checked first* (migration) | Open the page's comparison and tick each number change after checking it. |
 | *The draft was edited after this comparison* (migration) | Press *Refresh comparison*, check it, then approve. |
 | *The page was edited after the migration* (restore refused) | Use *Restore, overwriting later edits* if you are sure, or *Download original*. |
-| *Writes are switched off* in a dry run | Remove `LKC_ALLOW_WRITES=false` from `.env.local` and restart. |
+| *Writes are switched off* in a dry run | Remove `LKC_ALLOW_WRITES=false` from the settings file (`.env.local`, or `settings.env` in your data folder) and restart. |
 | A PDF says *needs transcription* | It has no text layer (scanned). Use *Transcribe with AI*, or export a text PDF. |
 | *…is larger than the … byte limit* when adding a file | Files are uploaded one at a time up to `LKC_MAX_DOCUMENT_BYTES` (25 MB by default); split larger files or raise the limit. |
 | Database problems | Restore your backup of `data/` (see *Backups*), or stop the app and delete `data/` to start fresh (your LegendKeeper project is not affected, but the app's history and recovery records are lost). |
@@ -808,6 +852,9 @@ supported part and saying so on screen.
 | *“…” matches N pages. Which one?* (Task Assistant) | Choose the page in the plan, or write the page id or link in your request. |
 | *This plan sends page text to the AI provider. Confirm that first.* | Tick the confirmation under the plan after reading what will be sent, or rephrase the request to avoid the comparison. |
 | *The AI proposed a plan the app does not allow* | The AI planner used an operation outside the list; rephrase, or use *Make a plan* without AI. |
+| Windows says it protected your PC / asks whether to run *Start LK Companion* | The files came from the internet. Choose *More info → Run anyway*, or unblock the zip before unzipping (right-click → Properties → Unblock). |
+| The small window says *The app did not start within a minute* | Look at `%LOCALAPPDATA%\LK Companion\logs\server.log`. Another program may be using port 3127: close it, or set `LKC_PORT` (e.g. 3130) in the settings file. |
+| Nothing opens after *LK Companion is running* | Open <http://127.0.0.1:3127> in any browser. |
 | *Next.js is not installed in this folder* | Run `npm ci` in the folder that contains `package.json` and wait until it finishes. |
 
 ## Project layout

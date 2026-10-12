@@ -1,9 +1,13 @@
 import 'server-only'
 import { z } from 'zod'
+import { join } from 'node:path'
+import { appHome, readSettingsFile } from './local-settings'
 import { runtimeState } from './runtime'
 
 /**
- * Server configuration, read from environment variables (`.env.local`).
+ * Server configuration, read from environment variables and the settings file on this
+ * computer (`.env.local` in the source folder, or `settings.env` in `LKC_HOME`; see
+ * local-settings.ts). Values in the settings file apply as soon as it changes.
  *
  * Secrets are read here and only here, and never leave the server: API responses expose
  * only whether a key is configured and where it came from, never the key itself.
@@ -97,8 +101,15 @@ export const DEFAULT_AI_MODEL = 'claude-opus-5-5'
 /** OpenRouter's free-models router: picks an available free model for each request. */
 export const DEFAULT_OPENROUTER_MODEL = 'openrouter/free'
 
-export function getConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+/** The environment plus the settings file (re-read when it changes). Tests pass their own environment. */
+function effectiveEnv(): NodeJS.ProcessEnv {
+  if (process.env.NODE_ENV === 'test') return process.env
+  return { ...process.env, ...readSettingsFile(process.env) }
+}
+
+export function getConfig(env: NodeJS.ProcessEnv = effectiveEnv()): AppConfig {
   const parsed = EnvSchema.parse(env)
+  const home = appHome(env)
   const runtime = runtimeState()
   const lkKey = runtime.lkApiKey ?? parsed.LEGENDKEEPER_API_KEY
   const anthropic = {
@@ -134,7 +145,7 @@ export function getConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       anthropic,
       openrouter,
     },
-    databasePath: parsed.LKC_DATABASE_PATH ?? './data/lk-companion.db',
+    databasePath: parsed.LKC_DATABASE_PATH ?? (home ? join(home, 'lk-companion.db') : './data/lk-companion.db'),
     limits: { maxUploadBytes: parsed.LKC_MAX_UPLOAD_BYTES, maxSourceChars: parsed.LKC_MAX_SOURCE_CHARS, maxDocumentBytes: parsed.LKC_MAX_DOCUMENT_BYTES },
   }
 }

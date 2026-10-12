@@ -3,9 +3,10 @@
 import Link from 'next/link'
 import { Badge, Card, ErrorBox, Loading, Notice, formatDate, statusTone, useApi } from '@/components/ui'
 import type { StatusResponse } from '@/lib/types'
+import { WelcomeSetup } from '@/components/welcome-setup'
 
 export default function DashboardPage() {
-  const { data, error, loading } = useApi<StatusResponse>('/api/status')
+  const { data, error, loading, reload } = useApi<StatusResponse>('/api/status')
 
   return (
     <>
@@ -15,6 +16,7 @@ export default function DashboardPage() {
       </div>
       <ErrorBox error={error} />
       {loading && !data && <Loading />}
+      {data && !data.connection.legendkeeper.keyConfigured && <WelcomeSetup onDone={() => void reload()} />}
       {data && <Dashboard data={data} />}
     </>
   )
@@ -29,13 +31,6 @@ function Dashboard({ data }: { data: StatusResponse }) {
 
   return (
     <>
-      {!lk.keyConfigured && (
-        <Notice tone="warning">
-          <strong>LegendKeeper is not configured yet.</strong> Add <code>LEGENDKEEPER_API_KEY</code> to <code>.env.local</code> (see the README), or enter a key for this session on the{' '}
-          <Link href="/settings">Settings</Link> page.
-        </Notice>
-      )}
-
       <div className="grid grid-2">
         <Card title="LegendKeeper connection" actions={<Link href="/connection">Open</Link>}>
           {check?.ok && check.project ? (

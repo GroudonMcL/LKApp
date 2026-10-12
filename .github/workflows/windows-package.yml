@@ -1,0 +1,89 @@
+name: Windows package
+
+# Builds the portable Windows package (LK Companion + its own Node.js + launcher), starts it on
+# a Windows machine to check it works, and publishes it as a download on the run's page
+# ("Artifacts" → LK-Companion-Windows). Runs on every push to main or a claude/ branch, and
+# on demand from the Actions tab. Built from a fresh checkout: no keys or local data exist here.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Also publish it as a GitHub release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
+  package:
+    needs: test
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - run: npm ci
+      - name: Build the package
+        run: node scripts/package-windows.mjs
+      - name: Start the packaged app on Windows and check it answers
+        shell: pwsh
+        run: |
+          $pkg = Join-Path $env:RUNNER_TEMP 'pkg'
+          Expand-Archive -Path (Get-ChildItem dist\*.zip).FullName -DestinationPath $pkg
+          $app = Join-Path $pkg 'LK Companion'
+          $env:LKC_HOME = Join-Path $env:RUNNER_TEMP 'lkc-home'
+          $env:LKC_NO_BROWSER = '1'
+          $p = Start-Process -FilePath (Join-Path $app 'node\node.exe') -ArgumentList 'launcher.mjs' -WorkingDirectory $app -PassThru -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'launcher.out') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'launcher.err')
+          $ok = $false
+          for ($i = 0; $i -lt 90 -and -not $ok; $i++) {
+            Start-Sleep -Seconds 1
+            try { $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3127/api/status; if ($r.StatusCode -eq 200) { $ok = $true } } catch {}
+          }
+          Get-Content (Join-Path $env:RUNNER_TEMP 'launcher.out')
+          if (-not $ok) { Get-Content (Join-Path $env:RUNNER_TEMP 'launcher.err'); Get-Content (Join-Path $env:LKC_HOME 'logs\server.log') -ErrorAction SilentlyContinue; throw 'The packaged app did not start.' }
+          foreach ($path in '/', '/settings', '/chronology', '/assistant') {
+            $r = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:3127$path"
+            if ($r.StatusCode -ne 200) { throw "$path answered $($r.StatusCode)" }
+            Write-Output "$path OK"
+          }
+          if (-not (Test-Path (Join-Path $env:LKC_HOME 'lk-companion.db'))) { throw 'The database was not created in LKC_HOME.' }
+          Stop-Process -Id $p.Id -Force
+          Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force
+      - name: Publish the package as a download
+        uses: actions/upload-artifact@v4
+        with:
+          name: LK-Companion-Windows
+          path: dist/LK Companion/
+          retention-days: 90
+      - name: Publish a release (only when asked)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = "v$version-build$env:GITHUB_RUN_NUMBER"
+          gh release create $tag (Get-ChildItem dist\*.zip).FullName --target $env:GITHUB_SHA --title "LK Companion $version (build $env:GITHUB_RUN_NUMBER)" --notes "Windows package. Unzip it and double-click 'Start LK Companion'. See 'READ ME FIRST.txt' inside."

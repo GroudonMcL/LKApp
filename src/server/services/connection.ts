@@ -1,4 +1,6 @@
 import 'server-only'
+import { dirname, resolve } from 'node:path'
+import { appHome, settingsFilePath } from '../local-settings'
 import type { AppContext } from '../context'
 import { ConnectorError, toConnectorError } from '../lk/errors'
 import type { ProjectInfo } from '../lk/types'
@@ -16,6 +18,11 @@ type Store = Record<symbol, ConnectionCheck | undefined>
 
 export function lastConnectionCheck(): ConnectionCheck | null {
   return (globalThis as unknown as Store)[LAST_CHECK] ?? null
+}
+
+/** Forgets the last connection result (when the key changes, it no longer applies). */
+export function forgetConnectionCheck() {
+  delete (globalThis as unknown as Store)[LAST_CHECK]
 }
 
 /**
@@ -86,6 +93,12 @@ export function connectionSummary(ctx: AppContext) {
   const projectId = knownProjectId(ctx)
   const verification = projectId ? ctx.repos.verifications.latest(projectId, ctx.sdkVersion) : null
   return {
+    local: {
+      /** Where keys saved from the Settings page go (a file on this computer). */
+      settingsFile: settingsFilePath(),
+      dataFolder: dirname(resolve(config.databasePath)),
+      packaged: appHome() !== null,
+    },
     legendkeeper: {
       keyConfigured: config.lk.apiKey !== null,
       keySource: config.lk.apiKeySource,

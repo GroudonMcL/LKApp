@@ -2,6 +2,9 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // The Windows package runs a self-contained server (`.next/standalone/server.js`) with its own
+  // copy of Node.js; see scripts/package-windows.mjs. Normal builds are unchanged.
+  ...(process.env.LKC_STANDALONE === '1' ? { output: 'standalone' as const } : {}),
   images: { unoptimized: true },
   // Don't write AGENTS.md / CLAUDE.md into the project when the dev server starts.
   agentRules: false,
