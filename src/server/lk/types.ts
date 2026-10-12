@@ -102,3 +102,70 @@ export interface CreatedPage {
   documentId: string | null
   documentType: string | null
 }
+
+// ── Timelines and calendars ─────────────────────────────────────────────────────
+
+export interface LkCalendarInfo {
+  id: string
+  name: string
+  /** Eras from year 1 onwards, by abbreviation. */
+  positiveEras: { abbr: string; name: string }[]
+  /** The era before year 1 (e.g. "BCY"), when the calendar has one. */
+  negativeEra: { abbr: string; name: string } | null
+  months: string[]
+  builtIn: boolean
+}
+
+export interface TimelineDocumentInfo {
+  resourceId: string
+  documentId: string
+  name: string
+  type: string
+  calendarId: string | null
+}
+
+export interface TimelineLaneInfo {
+  id: string
+  name: string
+  /** From a chained timeline rather than this document. */
+  external: boolean
+}
+
+export interface TimelineEventDate {
+  year: number
+  month: number
+  monthName: string
+  day: number
+  era: { id?: string; name?: string; abbr?: string } | null
+}
+
+export interface TimelineEventInfo {
+  id: string
+  laneId: string | null
+  type: string
+  name: string
+  formattedStart: string | null
+  formattedEnd: string | null
+  startDate: TimelineEventDate | null
+  endDate: TimelineEventDate | null
+  /** Precision: 1 year, 2 month, 3 day, 4 time. */
+  detail: number | null
+  uri: string | null
+  isHidden: boolean
+  /** True for events of chained timelines (listed here, stored elsewhere). */
+  external: boolean
+}
+
+export interface CreateTimelineEventInput {
+  resourceId: string
+  documentId: string
+  /** Client-chosen event id (cuid2 format), chosen before the write: a second create with it is refused. */
+  eventId: string
+  laneId: string
+  name: string
+  /** A plain date LegendKeeper parses in the timeline's calendar (see core/chronology/dates.ts lkFormatted). */
+  formattedStart: string
+  formattedEnd: string | null
+  /** `lk://resources/<id>`: links the event to a page. */
+  uri: string | null
+}

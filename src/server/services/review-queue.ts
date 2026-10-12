@@ -1,6 +1,7 @@
 import 'server-only'
 import { z } from 'zod'
 import type { AppContext } from '../context'
+import type { KnowledgeKind } from '../db/knowledge-repositories'
 import { knownProjectId } from './connection'
 
 /**
@@ -20,6 +21,14 @@ export const REVIEW_TYPES = {
   migration_review: 'Migration to review',
   changed_after_audit: 'Page changed after an audit',
   gone: 'Page no longer found',
+  proposed_event: 'Proposed historical event',
+  chronology_conflict: 'Conflicting historical claims',
+  unresolved_date: 'Unresolved chronology',
+  missing_page: 'Missing entity page',
+  relationship: 'Suggested relationship',
+  terminology: 'Possible entity-name inconsistency',
+  contradiction: 'Possible contradiction',
+  link_suggestion: 'Suggested link or reference correction',
 } as const
 export type ReviewType = keyof typeof REVIEW_TYPES
 export type ReviewSeverity = 'high' | 'medium' | 'low'
@@ -143,6 +152,35 @@ function collect(ctx: AppContext): ReviewEntry[] {
       if (!page?.updatedAt || page.updatedAt <= f.lastSeenAt) continue
       seen.add(f.resourceId)
       out.push({ key: `finding:${f.id}`, type: 'changed_after_audit', severity: 'low', title: f.resourceName ?? f.title, resourceId: f.resourceId, job: null, at: page.updatedAt, href: `/health`, explanation: `“${f.title}” was found by an audit, and the page has changed since. Audit it again to see whether the finding still applies.` })
+    }
+
+    // Chronology and knowledge analysis: open findings and candidates (decide where they live).
+    const TYPE: Record<KnowledgeKind, ReviewType> = {
+      event_candidate: 'proposed_event',
+      chronology_conflict: 'chronology_conflict',
+      unresolved_date: 'unresolved_date',
+      missing_page: 'missing_page',
+      relationship: 'relationship',
+      terminology: 'terminology',
+      contradiction: 'contradiction',
+      link_suggestion: 'link_suggestion',
+    }
+    const HREF: Record<KnowledgeKind, string> = {
+      event_candidate: '/chronology/discover',
+      chronology_conflict: '/chronology',
+      unresolved_date: '/chronology',
+      missing_page: '/knowledge?tab=missing_page',
+      relationship: '/knowledge?tab=relationship',
+      terminology: '/knowledge?tab=terminology',
+      contradiction: '/knowledge?tab=contradiction',
+      link_suggestion: '/knowledge?tab=link_suggestion',
+    }
+    for (const item of ctx.repos.knowledge.list(projectId, { statuses: ['open'], limit: 3000 }).items) {
+      const severity: ReviewSeverity = (item.kind === 'chronology_conflict' || item.kind === 'contradiction') && item.certainty !== 'possible' ? 'medium' : 'low'
+      const cites = item.evidence.length ? ` Evidence: ${item.evidence.slice(0, 2).map((c) => `${c.resourceName}${c.field ? ` (${c.field})` : ''}`).join(', ')}${item.evidence.length > 2 ? ` and ${item.evidence.length - 2} more` : ''}.` : ''
+      const action =
+        item.kind === 'event_candidate' ? ' Accept, edit, reject or defer it.' : item.kind === 'missing_page' ? ' Draft a page with a recipe, or reject it.' : item.kind === 'relationship' || item.kind === 'link_suggestion' ? ' Accept or reject it.' : ' Mark it intentional, resolved or as needing research.'
+      out.push({ key: `knowledge:${item.id}`, type: TYPE[item.kind], severity, title: item.title, resourceId: item.resourceIds[0] ?? null, job: null, at: item.lastSeenAt, href: HREF[item.kind], explanation: `${item.summary}${cites}${action}${item.statusNote ? ` (${item.statusNote})` : ''}` })
     }
   }
   return out

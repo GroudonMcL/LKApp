@@ -4,6 +4,12 @@ import { plainText, walk, type Block, type PropertyBlock } from '@legendkeeper/s
 import type { LegendKeeperConnector } from './connector'
 import { toConnectorError } from './errors'
 import type {
+  CreateTimelineEventInput,
+  LkCalendarInfo,
+  TimelineDocumentInfo,
+  TimelineEventDate,
+  TimelineEventInfo,
+  TimelineLaneInfo,
   CreatePageInput,
   CreatedPage,
   DocumentContent,
@@ -157,6 +163,97 @@ export class SdkConnector implements LegendKeeperConnector {
       const written = await this.writer.documents.replaceBlocks({ resourceId, documentId }, { blocks: blocks as Block[], ifMatch })
       return { version: written.version }
     })
+  }
+
+  async listCalendars(): Promise<LkCalendarInfo[]> {
+    return this.call(async () => {
+      const list = await this.reader.calendars.list()
+      const builtIn = new Set(['gregorian', 'harptos', 'eberron', 'exandria', 'greyhawk', 'elder-scrolls'])
+      return list.data.map((c) => ({
+        id: c.id,
+        name: c.name,
+        positiveEras: (c.positiveEras ?? []).map((e) => ({ abbr: e.abbr ?? '', name: e.name ?? '' })),
+        negativeEra: c.negativeEra ? { abbr: c.negativeEra.abbr ?? '', name: c.negativeEra.name ?? '' } : null,
+        months: c.months.map((m) => m.name),
+        builtIn: builtIn.has(c.id),
+      }))
+    })
+  }
+
+  async getTimelineDocument(resourceId: string, documentId: string): Promise<TimelineDocumentInfo> {
+    return this.call(async () => {
+      const doc = await this.reader.documents.get({ resourceId, documentId })
+      return { resourceId, documentId, name: doc.name, type: doc.type, calendarId: (doc as { calendarId?: string }).calendarId ?? null }
+    })
+  }
+
+  async listTimelineLanes(resourceId: string, documentId: string): Promise<TimelineLaneInfo[]> {
+    return this.call(async () => {
+      const lanes = await this.reader.timelines.listLanes({ resourceId, documentId })
+      return lanes.data.map((lane) => ({ id: lane.id, name: lane.name, external: isExternal(lane as typeof lane & { sourceUri?: string; isExternal?: boolean }, resourceId, documentId) }))
+    })
+  }
+
+  async listTimelineEvents(resourceId: string, documentId: string, max: number): Promise<TimelineEventInfo[]> {
+    return this.call(async () => {
+      const out: TimelineEventInfo[] = []
+      for await (const event of await this.reader.timelines.listEvents({ resourceId, documentId }, { limit: 100 })) {
+        out.push(toEvent(event, resourceId, documentId))
+        if (out.length >= max) break
+      }
+      return out
+    })
+  }
+
+  async getTimelineEvent(resourceId: string, documentId: string, eventId: string): Promise<TimelineEventInfo> {
+    return this.call(async () => toEvent(await this.reader.timelines.getEvent({ resourceId, documentId, eventId }), resourceId, documentId))
+  }
+
+  async createTimelineEvent(input: CreateTimelineEventInput): Promise<TimelineEventInfo> {
+    return this.call(async () => {
+      const created = await this.writer.timelines.createEvent(
+        { resourceId: input.resourceId, documentId: input.documentId },
+        {
+          id: input.eventId,
+          laneId: input.laneId,
+          type: 'event',
+          name: input.name,
+          formattedStart: input.formattedStart,
+          ...(input.formattedEnd ? { formattedEnd: input.formattedEnd } : {}),
+          ...(input.uri ? { uri: input.uri } : {}),
+        },
+      )
+      return toEvent(created, input.resourceId, input.documentId)
+    })
+  }
+}
+
+function isExternal(item: { sourceUri?: string; isExternal?: boolean }, resourceId: string, documentId: string): boolean {
+  if (typeof item.isExternal === 'boolean') return item.isExternal
+  return Boolean(item.sourceUri && item.sourceUri !== `lk://resources/${resourceId}/docs/${documentId}`)
+}
+
+function toEventDate(value: unknown): TimelineEventDate | null {
+  const d = value as { year?: number; month?: number; monthName?: string; day?: number; era?: { id?: string; name?: string; abbr?: string } } | null | undefined
+  if (!d || typeof d.year !== 'number') return null
+  return { year: d.year, month: d.month ?? 1, monthName: d.monthName ?? '', day: d.day ?? 1, era: d.era ?? null }
+}
+
+function toEvent(event: components['schemas']['Event'], resourceId: string, documentId: string): TimelineEventInfo {
+  const e = event as components['schemas']['Event'] & { sourceUri?: string; isExternal?: boolean }
+  return {
+    id: e.id,
+    laneId: e.laneId ?? null,
+    type: e.type,
+    name: e.name ?? '',
+    formattedStart: e.formattedStart ?? null,
+    formattedEnd: e.formattedEnd ?? null,
+    startDate: toEventDate(e.startDate),
+    endDate: toEventDate(e.endDate),
+    detail: e.detail ?? null,
+    uri: e.uri ?? null,
+    isHidden: e.isHidden ?? false,
+    external: isExternal(e, resourceId, documentId),
   }
 }
 

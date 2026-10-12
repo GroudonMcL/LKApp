@@ -1,6 +1,11 @@
 import type { LegendKeeperConnector } from '@/server/lk/connector'
 import { ConnectorError } from '@/server/lk/errors'
 import type {
+  CreateTimelineEventInput,
+  LkCalendarInfo,
+  TimelineDocumentInfo,
+  TimelineEventInfo,
+  TimelineLaneInfo,
   CreatePageInput,
   CreatedPage,
   DocumentContent,
@@ -211,5 +216,91 @@ export class MockConnector implements LegendKeeperConnector {
     doc.text = JSON.stringify(blocks)
     if (behavior === 'apply_then_connection_error') throw new ConnectorError('connection', 'reply lost', { outcome: 'unknown' })
     return { version: doc.version }
+  }
+
+  // ── Timelines ───────────────────────────────────────────────────────────────
+  calendars: LkCalendarInfo[] = [
+    { id: 'greyhawk', name: 'Greyhawk', positiveEras: [{ abbr: 'CY', name: 'Common Year' }], negativeEra: null, months: ['Fireseek', 'Readying', 'Coldeven', 'Growfest', 'Planting', 'Flocktime', 'Wealsun', 'Richfest', 'Reaping', 'Goodmonth', 'Harvester', 'Brewfest', 'Patchwall', "Ready'reat", 'Sunsebb', 'Needfest'], builtIn: true },
+    { id: 'gh-custom', name: 'Greyhawk (Use This)', positiveEras: [{ abbr: 'CY', name: 'Common Year' }], negativeEra: { abbr: 'BCY', name: 'Before Common Year' }, months: ['Needfest', 'Fireseek', 'Readying', 'Coldeven', 'Growfest', 'Planting', 'Flocktime', 'Wealsun', 'Richfest', 'Reaping', 'Goodmonth', 'Harvester', 'Brewfest', 'Patchwall', "Ready'reat", 'Sunsebb'], builtIn: false },
+  ]
+  /** Timeline documents by document id. Add one with `addTimeline`. */
+  timelines = new Map<string, { resourceId: string; name: string; calendarId: string; lanes: TimelineLaneInfo[]; events: TimelineEventInfo[] }>()
+  /** Makes event creation fail like this (e.g. to test uncertain outcomes). */
+  eventCreateBehavior: CreateBehavior = 'ok'
+
+  addTimeline(resourceId: string, documentId: string, options: { name?: string; calendarId?: string; lanes?: TimelineLaneInfo[]; events?: TimelineEventInfo[] } = {}) {
+    const resource = this.resources.get(resourceId)
+    if (resource && !resource.documents.some((d) => d.id === documentId)) resource.documents.push({ id: documentId, name: options.name ?? 'Timeline', type: 'time', blocks: [], version: 'v1', text: '' })
+    this.timelines.set(documentId, { resourceId, name: options.name ?? 'Timeline', calendarId: options.calendarId ?? 'gh-custom', lanes: options.lanes ?? [{ id: 'lane1', name: 'History', external: false }], events: options.events ?? [] })
+  }
+
+  private timeline(resourceId: string, documentId: string) {
+    const t = this.timelines.get(documentId)
+    if (!t || t.resourceId !== resourceId) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+    return t
+  }
+
+  async listCalendars(): Promise<LkCalendarInfo[]> {
+    this.record('listCalendars', null)
+    return this.calendars
+  }
+
+  async getTimelineDocument(resourceId: string, documentId: string): Promise<TimelineDocumentInfo> {
+    this.record('getTimelineDocument', { resourceId, documentId })
+    const t = this.timeline(resourceId, documentId)
+    return { resourceId, documentId, name: t.name, type: 'time', calendarId: t.calendarId }
+  }
+
+  async listTimelineLanes(resourceId: string, documentId: string): Promise<TimelineLaneInfo[]> {
+    this.record('listTimelineLanes', { resourceId, documentId })
+    return this.timeline(resourceId, documentId).lanes
+  }
+
+  async listTimelineEvents(resourceId: string, documentId: string, max: number): Promise<TimelineEventInfo[]> {
+    this.record('listTimelineEvents', { resourceId, documentId })
+    return this.timeline(resourceId, documentId).events.slice(0, max)
+  }
+
+  async getTimelineEvent(resourceId: string, documentId: string, eventId: string): Promise<TimelineEventInfo> {
+    this.record('getTimelineEvent', { resourceId, documentId, eventId })
+    const event = this.timeline(resourceId, documentId).events.find((e) => e.id === eventId)
+    if (!event) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+    return event
+  }
+
+  async createTimelineEvent(input: CreateTimelineEventInput): Promise<TimelineEventInfo> {
+    this.record('createTimelineEvent', input)
+    const t = this.timeline(input.resourceId, input.documentId)
+    if (this.eventCreateBehavior === 'connection_error_before_apply') throw new ConnectorError('connection', 'network down', { outcome: 'unknown' })
+    if (t.events.some((e) => e.id === input.eventId)) throw new ConnectorError('duplicate_id', 'duplicate', { status: 409, code: 'DUPLICATE_ID', outcome: 'not_applied' })
+    if (input.uri && !this.resources.has(input.uri.replace('lk://resources/', ''))) throw new ConnectorError('validation', 'uri target is not a resource', { status: 400, code: 'VALIDATION_ERROR', outcome: 'not_applied' })
+    const calendar = this.calendars.find((c) => c.id === t.calendarId)!
+    const read = (text: string | null) => {
+      if (!text) return null
+      const m = text.match(/^(?:([A-Za-z'’]+) (?:(\d+)\w\w, )?)?(\d+)(?: (\w+))?$/)
+      if (!m) return null
+      const negative = Boolean(m[4] && m[4] === calendar.negativeEra?.abbr)
+      const monthIndex = m[1] ? calendar.months.indexOf(m[1]) : 0
+      return { date: { year: Number(m[3]), month: monthIndex + 1, monthName: calendar.months[monthIndex] ?? '', day: m[2] ? Number(m[2]) : 1, era: { abbr: negative ? calendar.negativeEra!.abbr : calendar.positiveEras[0]!.abbr } }, detail: m[2] ? 3 : m[1] ? 2 : 1 }
+    }
+    const start = read(input.formattedStart)
+    const end = read(input.formattedEnd)
+    const event: TimelineEventInfo = {
+      id: input.eventId,
+      laneId: input.laneId,
+      type: 'event',
+      name: input.name,
+      formattedStart: input.formattedStart,
+      formattedEnd: input.formattedEnd,
+      startDate: start?.date ?? null,
+      endDate: end?.date ?? null,
+      detail: start?.detail ?? 1,
+      uri: input.uri,
+      isHidden: false,
+      external: false,
+    }
+    t.events.push(event)
+    if (this.eventCreateBehavior === 'apply_then_connection_error') throw new ConnectorError('connection', 'reply lost', { outcome: 'unknown' })
+    return event
   }
 }

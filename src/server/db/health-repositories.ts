@@ -297,6 +297,13 @@ export class ContentCacheRepo {
   count(projectId: string): number {
     return (this.db.prepare('SELECT COUNT(*) AS n FROM lk_content_cache WHERE project_id = ?').get(projectId) as { n: number }).n
   }
+  /** Every readable page the audits have read (what chronology and knowledge analysis work from). */
+  all(projectId: string): ContentSnapshot[] {
+    const rows = this.db.prepare('SELECT * FROM lk_content_cache WHERE project_id = ? AND error IS NULL').all(projectId) as {
+      resource_id: string; document_id: string; version: string; structure: string; fetched_at: string; error: string | null
+    }[]
+    return rows.map((row) => ({ resourceId: row.resource_id, documentId: row.document_id, version: row.version, structure: parse<PageStructure | null>(row.structure, null), fetchedAt: row.fetched_at, error: row.error }))
+  }
   clear(projectId: string) {
     this.db.prepare('DELETE FROM lk_content_cache WHERE project_id = ?').run(projectId)
   }

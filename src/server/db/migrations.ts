@@ -380,6 +380,112 @@ CREATE INDEX migration_backups_item ON migration_backups(item_id);
 CREATE INDEX migration_backups_resource ON migration_backups(resource_id);
 `,
   },
+  {
+    version: 5,
+    name: 'chronology and knowledge analysis: native timeline cache, findings and candidates, saved searches',
+    sql: `
+-- Native LegendKeeper timelines (documents of type "time"), as last read. Read-only copies.
+CREATE TABLE lk_timelines (
+  project_id TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  document_id TEXT NOT NULL,
+  resource_name TEXT NOT NULL,
+  name TEXT NOT NULL,
+  calendar_id TEXT,
+  lanes TEXT NOT NULL DEFAULT '[]',
+  event_count INTEGER NOT NULL DEFAULT 0,
+  fetched_at TEXT NOT NULL,
+  error TEXT,
+  PRIMARY KEY (project_id, document_id)
+);
+
+CREATE TABLE lk_timeline_events (
+  project_id TEXT NOT NULL,
+  document_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  lane_id TEXT,
+  lane_name TEXT,
+  type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  formatted_start TEXT,
+  formatted_end TEXT,
+  start_date TEXT,
+  end_date TEXT,
+  detail INTEGER,
+  uri TEXT,
+  is_hidden INTEGER NOT NULL DEFAULT 0,
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (project_id, document_id, event_id)
+);
+
+-- Findings of chronology and knowledge analysis, and event candidates, with your decisions.
+-- key identifies the same finding from the same evidence in later runs; fingerprint changes
+-- when the cited passages change, which re-opens a decision taken on the old wording.
+CREATE TABLE knowledge_items (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  resource_ids TEXT NOT NULL DEFAULT '[]',
+  data TEXT NOT NULL DEFAULT '{}',
+  evidence TEXT NOT NULL DEFAULT '[]',
+  edits TEXT,
+  origin TEXT NOT NULL,
+  certainty TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL,
+  status_note TEXT,
+  status_fingerprint TEXT,
+  draft_job_id TEXT,
+  run_id TEXT,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  status_changed_at TEXT,
+  UNIQUE (project_id, key)
+);
+CREATE INDEX knowledge_items_kind ON knowledge_items(project_id, kind, status);
+
+CREATE TABLE analysis_runs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  status TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '{}',
+  ai TEXT,
+  error TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT
+);
+
+CREATE TABLE saved_searches (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  query TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- Native timeline event writes: what was approved, the event id chosen before the write, and
+-- what LegendKeeper returned on reading it back.
+CREATE TABLE timeline_writes (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  item_id TEXT,
+  resource_id TEXT NOT NULL,
+  document_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL,
+  readback TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  written_at TEXT
+);
+`,
+  },
 ]
 
 /** Applies pending migrations in order, each in its own transaction. Returns the versions applied. */

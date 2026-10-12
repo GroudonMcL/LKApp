@@ -225,3 +225,22 @@ summary { cursor: pointer; color: var(--accent); }
 .comparison { display: grid; gap: 0.6rem; padding: 0.75rem; background: var(--surface-2); border-radius: var(--radius); }
 .comparison h3 { margin: 0.5rem 0 0.25rem; font-size: 1rem; }
 .compare-panes > div { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem; overflow: auto; max-height: 40rem; }
+
+/* Phase 3: chronology, knowledge analysis */
+.citation { margin: 0.35rem 0 0.5rem; }
+blockquote.passage { margin: 0.2rem 0 0; padding: 0.35rem 0.6rem; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 6px 6px 0; font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; }
+.knowledge-item { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.7rem 0.85rem; margin-bottom: 0.6rem; background: var(--surface); }
+.inline-input { font: inherit; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); min-width: 12rem; }
+.period-chart { display: grid; gap: 0.15rem; margin: 0.5rem 0 1rem; }
+.period-row { display: grid; grid-template-columns: 9rem 1fr 3rem; gap: 0.5rem; align-items: center; background: none; border: none; padding: 0.1rem 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.period-row:hover .period-bar, .period-row[aria-pressed='true'] .period-bar { background: var(--accent); }
+.period-bar { height: 0.8rem; background: var(--info); border-radius: 3px; min-width: 3px; opacity: 0.8; }
+.period-label { font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
+.chrono-list { list-style: none; margin: 0; padding: 0; }
+.chrono-period { margin: 1rem 0 0.4rem; font-size: 0.95rem; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 0.2rem; }
+.chrono-entry { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.75rem; padding: 0.45rem 0; border-bottom: 1px dashed var(--border); }
+.chrono-date { font-variant-numeric: tabular-nums; font-weight: 600; }
+.filter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0.5rem 0.75rem; margin-bottom: 0.5rem; }
+.filter-grid label { display: grid; gap: 0.2rem; font-size: 0.85rem; color: var(--muted); }
+.filter-grid input, .filter-grid select { font: inherit; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+textarea.code { width: 100%; min-height: 22rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }

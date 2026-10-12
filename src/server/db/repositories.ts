@@ -9,6 +9,7 @@ import type { IndexedResource } from '@/core/references'
 import { AiCacheRepo, BatchesRepo, BatchItemsRepo, BatchSourcesRepo } from './batch-repositories'
 import { AuditRunsRepo, ContentCacheRepo, FindingsRepo } from './health-repositories'
 import { MigrationBackupsRepo } from './migration-repositories'
+import { AnalysisRunsRepo, KnowledgeRepo, SavedSearchesRepo, TimelineWritesRepo, TimelinesRepo } from './knowledge-repositories'
 
 const now = () => new Date().toISOString()
 const json = (value: unknown) => JSON.stringify(value)
@@ -751,6 +752,11 @@ export interface Repos {
   findings: FindingsRepo
   contentCache: ContentCacheRepo
   migrationBackups: MigrationBackupsRepo
+  timelines: TimelinesRepo
+  knowledge: KnowledgeRepo
+  analysisRuns: AnalysisRunsRepo
+  savedSearches: SavedSearchesRepo
+  timelineWrites: TimelineWritesRepo
 }
 
 export function createRepos(db: Db): Repos {
@@ -771,5 +777,10 @@ export function createRepos(db: Db): Repos {
     findings: new FindingsRepo(db),
     contentCache: new ContentCacheRepo(db),
     migrationBackups: new MigrationBackupsRepo(db),
+    timelines: new TimelinesRepo(db),
+    knowledge: new KnowledgeRepo(db),
+    analysisRuns: new AnalysisRunsRepo(db),
+    savedSearches: new SavedSearchesRepo(db),
+    timelineWrites: new TimelineWritesRepo(db),
   }
 }

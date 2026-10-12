@@ -12,6 +12,7 @@ const LINKS = [
   { href: '/batches', label: 'Batch jobs' },
   { href: '/recipes', label: 'Recipes & templates' },
   { href: '/health', label: 'Wiki Health' },
+  { href: '/chronology', label: 'Chronology' },
   { href: '/tagging', label: 'Tagging assistant' },
   { href: '/migrations', label: 'Template migration' },
   { href: '/tags', label: 'Tag audit' },
@@ -29,7 +30,7 @@ export function Nav() {
         </span>
         <div>
           <strong>LK Companion</strong>
-          <div className="muted small">Phase 2 · local only</div>
+          <div className="muted small">Phase 3 · local only</div>
         </div>
       </div>
       <ul>
