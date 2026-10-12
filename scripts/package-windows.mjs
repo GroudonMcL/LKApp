@@ -127,8 +127,8 @@ set "READY=%DATADIR%\\updates\\ready\\LK Companion"
 rem This script removes the downloaded update when it is done, so it must not run from inside it.
 if /i "%~dp0"=="%READY%\\" (
   copy /y "%~f0" "%TEMP%\\lkc-apply-update.cmd" >nul
-  call "%TEMP%\\lkc-apply-update.cmd" %*
-  exit /b
+  rem Without CALL, control passes to the copy for good: this file is never read again.
+  "%TEMP%\\lkc-apply-update.cmd" %*
 )
 if not exist "%APPDIR%\\launcher.mjs" goto wrongfolder
 if not exist "%APPDIR%\\app\\server.js" goto wrongfolder
