@@ -19,6 +19,9 @@ documentation as <https://www.legendkeeper.com/developers/>.
 > AI: the OpenRouter free-model provider was exercised live on 12 Oct 2026 (see *AI provider:
 > OpenRouter* below); the Claude provider has not been (no Anthropic key was available).
 >
+> **Phase 3 (12 Oct 2026)**: timelines and calendars read live; one timeline event added in
+> the sandbox and read back; integration tests 8/8. See *Phase 3* below.
+>
 > **Phase 2 (11 Oct 2026)**, same test project, all on throwaway pages under the sandbox page,
 > deleted afterwards:
 >
@@ -62,12 +65,14 @@ Legend — **Verified**: *live* = against the real LegendKeeper test project; *s
 | Tags: updating | via `resources.update` / `resources.create` | yes | edit rights | On create, and the tagging assistant | **live**, spec | No dedicated tag endpoint. Tags match **exactly, including case**. A tag exists only while a page carries it, so “approving a new tag” means approving that text on a page. |
 | Hierarchy / parents | `parentId` on list/create; `POST …/move` | `resources.move` | edit rights | Parent on create; tree in browser | **live** | Siblings ordered by `rank` (compare as plain strings). |
 | Search | `GET /search?q&limit` | `search.search` | Member (reachable only) | Yes — live search, manual link lookup, duplicate check | **live**, contract | One page, ≤100 results; matches names, aliases and content. **A resource appears once per matching document** — the app de-duplicates. |
-| References / backlinks | mention runs in blocks; `links`/collection blocks; collection filter `scope: 'edges'` | `mention()`, `links()`, `collection()` | — | Mentions + `links` property on create; outgoing links read for the audit (broken links) and kept by migrations | **live** (mentions read back with the target's current `name`; the audit found links to pages missing from the project) | **No endpoint lists backlinks directly**; outgoing links are read from each page's blocks. |
+| References / backlinks | mention runs in blocks; `links`/collection blocks; collection filter `scope: 'edges'` | `mention()`, `links()`, `collection()` | — | Mentions + `links` property on create; outgoing links read for the audit (broken links) and kept by migrations; **Phase 3:** relationship browser, references report, unlinked mentions | **live** (mentions read back with the target's current `name`; the audit found links to pages missing from the project) | **No endpoint lists backlinks directly**; incoming links are derived by reading every page's outgoing links (only as complete as the audits), and the app says so wherever it shows them. |
 | Sidebar properties | `…/properties[/{id}][/rows]` | `properties.*` | edit rights for writes | Read only (page detail) | **live** (probe: create + list) | Row writes take `ifMatch`. Style guide prefers an **infobox** over sidebar properties for single-page wikis. |
 | Infobox / property blocks | infobox block + `…/blocks/{id}/properties` | `infobox()`, `property()`, `keyValue()`, `blocks.*Property*` | edit rights | Yes — facts infobox on created pages | **live**, spec | |
 | Templates: discovery / application | **Undocumented** (read) / **None** (apply) | Read: yes (live, Oct 2026) | — | Copy layout, fill locally | — | No template endpoints. Observed: `resources.list` returns templates with `parentId: "templates"` (e.g. *Statblock*), and `resources.get` / `documents.getBlocks` read them like pages. There is no "create from template"; the app copies the block layout and fills it in. Undocumented, so the app only uses it to *suggest* templates; any page can serve as the example instead. |
-| Timelines & events | `…/lanes`, `…/events` | `timelines.*` | edit rights | No (out of scope) | — | Events have only a name (no description); dates via `formattedStart` in the timeline's calendar. |
-| Calendars | `/calendars` | `calendars.*` | Admin for custom | No | **live** (list: one custom + 6 built-in incl. `greyhawk`) | Built-ins include `greyhawk`. Calendar writes take `ifMatch`. |
+| Timelines: reading | `GET …/docs/{id}`, `…/lanes`, `…/events[/{id}]` | `documents.get`, `timelines.listLanes/listEvents/getEvent` | Member | **Yes (Phase 3)** — Chronology reads every timeline the scan found | **live** (2 timelines, 17 events; integration test) | Events of chained timelines are listed too; the app keeps each with the timeline that holds it. |
+| Timelines: adding an event | `POST …/events` | `timelines.createEvent` | edit rights | **Yes (Phase 3)** — one event at a time, with preview and approval | **live** (sandbox probe, app write, integration test) | Client-chosen `id`; a second create with it → `409 DUPLICATE_ID`. `uri` must point at a readable resource (else `400`). No `ifMatch`. See *Phase 3* below. |
+| Timelines: other writes | lanes, `PATCH/DELETE …/events/{id}`, `documents.update` (`calendarId`, `sources`) | `timelines.*`, `documents.update` | edit rights | **No** — timelines and lanes are created, events changed or removed, in LegendKeeper | **live** (probe: create lane, update event) | Deliberately not used: an event update has no version check. |
+| Calendars | `/calendars` | `calendars.*` | Admin for custom | **Read (Phase 3)** — to read event dates and check eras before a write | **live** (one custom “Greyhawk (Use This)” + 6 built-in incl. `greyhawk`) | Built-ins cannot change. Calendar writes take `ifMatch`; the app does not write calendars. |
 | Images & assets | `/assets`, uploads | `assets.*`, `assets.uploadImage` | Member upload; Admin manage | No | — | Image fields accept only this project's asset URLs. |
 | Maps & features | `…/features` | `features.*`, `pixelToPos` | edit rights | No | — | |
 | Boards | `…/board[/shapes]` | `boards.*` | edit rights | No | — | tldraw 3.9 records; the developer notes shape creation support is still maturing. |
@@ -137,6 +142,36 @@ Checked against OpenRouter's public API and documentation
   inferred value was marked as from the source, and one section was duplicated under two
   headings; both were caught in review.
 - Scanned-PDF reading on OpenRouter is a paid plugin, so the app does not send PDFs there.
+
+## Phase 3: timelines, calendars and chronology (live, 12 Oct 2026)
+
+Checked against the SDK's `GUIDE.md` (*timelines and calendars*, *Chaining timelines*,
+*Calendars*), its OpenAPI schema (`Event`, `EventCreateParams`, `EventDate`, `Lane`, `Calendar`)
+and live in the test project.
+
+| Question | Documented | In SDK 4.0.0 | Verified | Answer |
+| --- | --- | --- | --- | --- |
+| Read timeline resources | yes | `documents.get` (type `time`, `calendarId`, `sources`) | **live** | Yes. Timelines are documents of type `time` on any resource; the scan's document list finds them. |
+| Read timeline events | yes | `timelines.listEvents` (paged), `getEvent`, `listLanes` | **live** | Yes, with `formattedStart/End`, `startDate/endDate` (`year`, `monthName`, `day`, `era.abbr`), `detail` (1 year, 2 month, 3 day, 4 time) and `uri`. |
+| Create timelines | yes | `resources.create` with a `time` document; `timelines.createLane` | **live** (probe page “LK Companion timeline probe” in the sandbox, kept) | Possible, **not used by the app**: you create timelines and lanes in LegendKeeper. |
+| Create events | yes | `timelines.createEvent` | **live** (probe, app write “Disappearance of Iuz”, integration test) | **Used**: one event per approval, client-chosen id (duplicates refused with `409`), read back and compared. |
+| Update existing events | yes | `timelines.updateEvent` (fields sent; `laneId` moves) | **live** (probe rename) | Possible, **not used**: no version check (`ifMatch`), so a change could overwrite an edit made in LegendKeeper. |
+| Associate events with calendars | yes | the timeline document's `calendarId`; `calendars.list/create/update` | **live** | A timeline has one calendar; events are minutes on it. Changing the calendar moves no event. Built-ins: `gregorian`, `harptos`, `eberron`, `exandria`, `greyhawk`, `elder-scrolls`. |
+| Represent uncertain dates | partly | `detail` (precision only) and `end` (ranges) | **live** | **No approximation, no relative dates, no “unknown”.** `formattedStart` is fuzzy-parsed: “c. 576” became Coldeven 576, “-50” became 50 CY, “the 590s” became 590 CY. The app keeps uncertain events local and sends only plain forms it builds (`576`, `Fireseek 576`, `Fireseek 12th, 576`, `50 BCY` on a calendar with a negative era). |
+| Link events to other resources | yes | event `uri` (`lk://resources/<id>`, `lk://documents/<id>`) | **live** | Yes; a `uri` to a resource the key cannot read → `400 VALIDATION_ERROR`. The app links only to pages in the last scan. |
+
+**Local chronology versus native timeline.** The Chronology page is the app's own view built
+from verified page data (event pages, dated fields), timelines as last read, and events you
+accepted; it is never presented as a LegendKeeper timeline. A LegendKeeper timeline changes only
+when you approve adding a specific event. To build a native timeline: create a resource with a
+timeline tab (choose your Greyhawk calendar) and at least one lane in LegendKeeper, read the
+timelines in the app, then add accepted, exactly dated events to it one at a time.
+
+**AI analysis tasks (Phase 3).** Event extraction, page comparison and task planning use the
+existing provider abstraction with fixed prompts and schemas (`src/server/ai/prompts/analysis.ts`).
+With OpenRouter all three went through the free-only checks live: one event-extraction request
+(10 proposals, all quotes verified), one plan request, served by
+`nvidia/nemotron-3-super-120b-a12b:free` at a reported cost of 0.
 
 ## Dependencies added in Phase 2
 

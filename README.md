@@ -1,4 +1,4 @@
-# LK Companion — Phase 2
+# LK Companion — Phase 3
 
 A private web app, running on your own computer, that helps you **import, organise and
 maintain your LegendKeeper project** with AI assistance — without losing information,
@@ -24,11 +24,17 @@ without your explicit approval of the exact change.
 | **Template migration** *(Phase 2)* | Moves older pages into a newer template's layout **in place** (same page, id, links). A word-for-word before-and-after comparison; every changed number must be ticked off; text that does not fit is kept in a notes section; images, secrets and other special blocks are kept exactly as they are. The original is saved first and can be restored. |
 | **Review queue** *(Phase 2)* | Everything waiting for a decision from you, across all of the above, with severity, a plain reason and a link. |
 | **Batch jobs & history** | Every job with its summary (done, failed, skipped, to review, remaining), recipe version, AI model and times; the full history as CSV/JSON; the audit log of every operation. |
+| **Chronology** *(Phase 3)* | A local chronology from your event pages, dated fields (Born, Died, Founded, Destroyed), the LegendKeeper timelines as last read and the events you accept. Dates are kept as written, with their uncertainty (approximate, ranges, decades, centuries, relative, unknown) and configurable calendars (Greyhawk CY/BCY by default). Filters, events per period, conflicting dates and impossible sequences, and adding an exactly dated event to an existing LegendKeeper timeline with preview and approval. |
+| **Event discovery** *(Phase 3)* | Finds events described in ordinary pages (rule-based; the AI optionally), each citing its sentence. Accept, edit, reject or defer; accepted events join the chronology and can become drafts with your event recipe. |
+| **Knowledge analysis** *(Phase 3)* | Relationships (page tree, links, fields, wording), pages that name another page without linking it, names used across pages that have no page, contradictions, naming variants and near-duplicate pages, each with its evidence. Optional AI comparison of 2–5 pages. |
+| **Relationship browser & search** *(Phase 3)* | One page and its neighbours as a graph and a table, with how each connection is supported. A combined search (name, kind, tags, folder, text, fields, dates, links, findings) with saved searches. |
+| **Task Assistant** *(Phase 3)* | Plain-English maintenance requests turned into a checked plan of the app's own operations, run read-only; changes are handed to the tool that makes them with approval. |
 
 **Out of scope** (by design): changes without approval, automatic deletion or merging of pages,
-map/board/timeline editing, semantic search, multi-user use or remote hosting, and free-form
-“do anything” commands. The app constructs every LegendKeeper operation itself; the AI only
-ever returns data that is checked against a schema.
+map and board editing, changing or deleting timeline events (the app only adds events, one at
+a time, with approval), semantic search, multi-user use or remote hosting, and free-form “do
+anything” commands. The app constructs every LegendKeeper operation itself; the AI only ever
+returns data that is checked against a schema.
 
 ## Honest status
 
@@ -47,6 +53,13 @@ ever returns data that is checked against a schema.
 - With OpenRouter the app only ever uses free models (see *Configuring the AI provider*).
   With Claude, cost estimates use list prices as of the date shown on screen; your
   Anthropic bill is authoritative.
+- Phase 3 was verified live (12 Oct 2026, test project): LegendKeeper timelines and calendars
+  read (2 timelines, 17 events; the project's own Greyhawk calendar linked automatically);
+  event discovery over 184 read pages, plus AI discovery and AI planning through free
+  OpenRouter models; an accepted event made into a page and added to a sandbox timeline
+  (read back as approved); knowledge analysis of 248 pages in about 10 seconds; the Task
+  Assistant's example requests. The live integration tests now include timeline reading and
+  a sandbox timeline-event write (8/8 passing). Details in [docs/PHASE3_REPORT.md](docs/PHASE3_REPORT.md).
 
 ---
 
@@ -172,6 +185,12 @@ can be answered by a fallback model; the draft records which model actually answ
 | *Transcribe with AI* on an image or scanned PDF in a batch | That file (images only with OpenRouter). |
 | AI tag suggestions (switched on in the tagging settings) | Each selected page's name, place in the tree, current tags and up to 6,000 characters of its text, with your allowed tag names. |
 | AI drafting in a template migration | Each selected page's readable text, the recipe's instructions and a rule to reorganise, not rewrite. |
+| Event discovery with *Also ask the AI* | Each listed page's name and text (up to 8,000 characters), for at most the number of pages you set. One request per page. |
+| *Compare with AI* (Knowledge analysis, or a Task Assistant comparison) | The names and text (up to 6,000 characters each) of the 2–5 pages you chose. One request. |
+| *Plan with AI* (Task Assistant) | Your request, the list of the assistant's operations, entity kinds and your tag names. No page text. One request. |
+
+Everything else in Phase 3 (chronology, date reading, rule-based event discovery, knowledge
+analysis, the relationship browser, search, and planning common requests) needs no AI.
 
 It goes to the provider chosen on the Settings page: OpenRouter (which passes it to the free
 model's provider) or Anthropic. Never your API keys, never anything automatically, and never pages you did not select. Results
@@ -315,12 +334,132 @@ only done while the page is unchanged since the migration; if it was edited afte
 choose *Restore, overwriting later edits*, or *Download original* (JSON exactly as LegendKeeper
 returned it) and decide yourself. Restoring was verified live: the page reads back identical.
 
+## Chronology
+
+**Chronology** builds a local history of your world from what the project already holds. It
+reads nothing from LegendKeeper except, on request, its timelines (read-only), and it is not a
+LegendKeeper timeline itself.
+
+- **What it is built from:** event pages (tagged Event, History, Battle… or of the historical
+  event type), dated by their Date / When / Year field or the first date in their opening
+  text; dated fields on other pages (Born, Died, Founded, Destroyed); events on LegendKeeper
+  timelines (press *Read LegendKeeper timelines*); and events you accepted in event discovery.
+  Page content comes from the last Wiki Health audit that read each page, so **run an audit
+  first** (pages read before Phase 3 must be audited again to include their infobox fields).
+- **Dates** are kept exactly as written and read without losing uncertainty: `576 CY`,
+  `Fireseek 12th, 576 CY`, `c. 576 CY`, `576–585 CY`, `from 582 to 584 CY`, `the 590s CY`,
+  `the 400s CY` (read as 400–499, with a note), `late 6th century CY`, `50 BCY`, `shortly after
+  576 CY`, `before the Greyhawk Wars`, `unknown`. A bare year in a Date field is read in the
+  default era and marked “era assumed”. Each entry shows the wording, how it was read, and any
+  notes.
+- **Calendars** (Calendars tab, JSON): each calendar lists its eras, months and the LegendKeeper
+  calendars that use it. The default is Greyhawk's Common Year (CY, with BCY before it) with its
+  twelve months and four festivals, plus Gregorian. An era converts to the primary era only with
+  a configured `offset`; other reckonings are recognised but not placed in order (the app does
+  not invent conversions). A LegendKeeper calendar with exactly the same months and eras is
+  linked automatically (your “Greyhawk (Use This)” calendar is); a timeline on any other
+  calendar (e.g. the Iggwilv timeline, which uses Gregorian) shows under that calendar until you
+  link it.
+- **Browse:** filter by calendar, year range, text, who or what an event involves (or any
+  person/faction/place/deity), tag or lane, and source. *Events per period* groups dense
+  periods into bars (by year, decade or century); click one to show that period.
+- **Uncertain & undated** lists approximate, relative, unplaced and undated entries.
+- **Conflicts** lists events whose sources disagree on the date (allowing ±5 years for
+  approximate dates; configurable), deaths before births, and events dated after someone's
+  recorded death (marked *possible*). *Check for conflicts* records them in the review queue,
+  where you mark them intentional, resolved or needing research. Nothing is resolved for you.
+- **Add to a LegendKeeper timeline** (on an entry or an accepted event): choose a timeline and
+  lane you created in LegendKeeper, see the final preview (the exact date sent, the event id
+  chosen now, the linked page), tick and approve. The event is sent once and read back.
+  Approximate, relative and undated events are refused, because LegendKeeper cannot record
+  uncertainty and reads loose wording wrongly (it read “c. 576” as Coldeven 576 in a test).
+  To change or remove an event, use LegendKeeper.
+
+## Event discovery
+
+**Chronology → event discovery** finds historical events described in ordinary pages: named
+events (“the Greyhawk Wars”, “the Battle of Emridy Meadows”) and sentences with a date and an
+event word (founded, sacked, crowned, born, died, raided, signed…).
+
+1. Choose pages (all read pages, a folder, a tag, or a list) and press *Check what will be
+   read*. Optionally tick *Also ask the AI to read up to N pages*: the preview lists exactly
+   which pages' text (up to 8,000 characters each) goes to which provider.
+2. *Find events.* Each candidate cites its sentence, proposes a title, date (as written),
+   people/factions/places (linked only when a name matches exactly one page), a summary, and
+   says whether it is a single source and whether a record may already exist.
+3. Accept, edit (title, date, summary), reject, or mark *needs research*. Accepted events join
+   the chronology. *Make a draft page* turns one into an ordinary import draft with your event
+   recipe; it is written only after its own final preview and approval.
+
+The same passage never produces a second candidate. Candidates that cite the same sentence
+(the rule-based reader and the AI may name an event differently) are merged; candidates whose
+dates disagree stay separate, so the disagreement is kept. Your decisions stay unless the cited
+wording changes. AI proposals must quote the page word for word and their date must be words
+from that quote; anything else is dropped, and AI proposals are never marked “stated”.
+
+## Knowledge analysis
+
+**Knowledge analysis** works only from the local index and the content audits read; running it
+changes nothing in LegendKeeper. Choose pages and checks, press *Analyse*:
+
+| Check | Finds | Your options |
+| --- | --- | --- |
+| Suggested relationships | Relationships the wording states (“…is worshipped by…”, “…lies in…”, “…a member of…”) where neither page links to the other or names it in a field. | Accept or reject (recorded in the app; add the link or field in LegendKeeper if you want it there). |
+| Unlinked mentions | A page names another page exactly without linking it (names shared by several pages, rules/glossary pages and folder pages are skipped). | Accept or reject; links can be added with a template migration, which adds links and changes nothing else. |
+| Missing pages | Names used on several pages with no page or alias (generic words, rules terms, sentence-opening words and parts of existing names are filtered), grouped by likely kind. | Accept, then *Make a draft page* with any recipe. |
+| Contradictions | The same field with different values on same-named pages; a title used for a person elsewhere that their page does not give (*possible*); and AI comparisons you ran. | Intentional, resolved, needs research, reject. |
+| Naming | Spellings that differ from a page's name only in spacing, hyphens or capitals (“Sea-Princes”, “WeeJas”), and pages with near-identical names. | Intentional (add an alias), resolved, reject. Nothing is renamed or merged. |
+
+**Compare a few pages with the AI** (optional, one request) lists contradictions between 2–5
+pages; each finding must quote at least two pages word for word or it is dropped, and its
+explanation is shown as a suggestion. Date disagreements are on the Chronology page.
+
+## Relationship browser and search
+
+**Relationships** shows one page in the middle and the pages connected to it, as a graph (line
+style shows the support: link or field, wording, page tree, accepted AI suggestion) and a table
+with the evidence. Filter by relationship, support and kind; click a neighbour to move to it.
+LegendKeeper has no backlinks endpoint, so incoming links are found by reading the pages audits
+have read; the page says how many are not read yet.
+
+**Search** combines name/alias, kind, tags, folder, page text, a field and its value, chronology
+dates, links to or from a page, open findings, and read/unread, and shows why each page
+matched. Save searches by name. It searches the local copy; for LegendKeeper's own full-text
+search use the Page browser. Semantic (embedding) search was considered and not added: names,
+tags, fields and links already locate pages well, and embeddings would need an external service
+or a large local model.
+
+## Task Assistant
+
+Describe a task in ordinary words, e.g. *Find all untagged NPC pages in Saltreach*, *Find
+historical events involving Iuz that have no confirmed date*, *Identify pages mentioning the
+Lanternwardens that are not linked to it*, *Find creatures that appear to use the old statblock
+layout*, *Suggest a chronology of events mentioned in these pages: Iuz, Iggwilv, Tasha*, *Find
+inconsistencies between "Iuz" and "The Soul Husks of the Old One"*, *Prepare a report of all
+references to Wee Jas*.
+
+*Make a plan* shows how the request was understood, the steps (each one of the app's own
+operations, marked *reads only*, *records findings in the app* or *opens another tool*), which
+pages the names refer to, what (if anything) would go to the AI, and the limitations. Names that
+match several pages, or none, are asked about rather than guessed. Read-only plans run straight
+away; a step that sends page text to the AI needs a tick first. The assistant never writes to
+LegendKeeper: “add tags…”, “fix the links…” and similar requests are handed to the Tagging
+assistant, Template migration, Import studio or Chronology, which show their own final preview.
+
+*Plan with AI* (optional) sends only your request, the list of operations and your tag names (no
+page text) to the selected provider; its plan is checked against the same list, and anything
+outside it is rejected. Common requests need no AI.
+
 ## The review queue
 
 **Review queue** lists everything waiting for you, highest severity first: writes with an
 unknown outcome, failures, possible duplicates and drafts to review, tag suggestions (new tags
 first), migrations that change numbers or have text that did not fit, pages changed after an
-audit, and pages in open jobs that no longer exist. Each entry says why and links to where you
+audit, pages in open jobs that no longer exist, and (Phase 3) proposed events, conflicting
+historical claims, unresolved chronology, missing pages, suggested relationships, naming
+inconsistencies, contradictions and suggested links. Each Phase 3 entry quotes its evidence and
+the decisions available; decided entries leave the queue and come back only if the cited
+wording changes. Each entry says why and links to where you
 deal with it. Filter by type, severity, or page name/id/job. The dashboard shows the count.
 
 ## Batch job statuses
@@ -364,6 +503,15 @@ A failed item never spoils the rest of its job. The Batch jobs page shows each j
   model.
 - **Wiki Health:** findings as CSV or JSON.
 - **Migration:** *Download original* per page.
+- **Chronology:** CSV or JSON, with each date as written, how it was read (kind, precision,
+  approximate, calendar, sort range, notes), the source page ids, fields and passages, and
+  conflicts.
+- **Knowledge findings** (and event candidates): CSV or JSON, with whether each is explicitly
+  stated, inferred or an AI suggestion, your decision, and the cited page ids and passages.
+- **Relationships:** CSV or JSON for the whole project or one page, each marked explicitly
+  supported (page tree, link, field) or suggested (wording, accepted AI).
+
+Phase 3 exports quote at most 300 characters of each cited passage, never whole pages.
 
 Exports never contain API keys (they are scrubbed of secrets even if one appeared in an error
 message). CSV cells that start with `=`, `+`, `-` or `@` are prefixed so spreadsheet programs
@@ -417,6 +565,8 @@ Browser (React pages)  ──fetch──▶  /api/* route handlers  (thin: valid
 - **`src/server/db/`** — SQLite using Node's built-in `node:sqlite` module (no native add-on to install), with versioned migrations and repositories.
 - **`src/app/`** — Next.js pages and `/api` routes. `src/proxy.ts` refuses non-localhost requests and cross-site writes.
 
+- **Phase 3:** `src/core/chronology/` (calendars, date reading, chronology entries, event discovery), `src/core/knowledge/` (entity kinds, relationships, missing pages, contradictions, naming), `src/core/assistant/plan.ts` (the plan schema, the allowed operations and the rule-based interpreter); services `chronology`, `event-discovery`, `timeline-writes`, `knowledge-base`, `knowledge-analysis`, `knowledge-items`, `knowledge-drafts`, `task-assistant`, `advanced-search`, `phase3-exports`; AI analysis prompts in `src/server/ai/prompts/analysis.ts` (event extraction, page comparison, task planning: fixed prompts and schemas). The connector gains read operations for calendars, timelines, lanes and events, and one write: `createTimelineEvent` (with an event id chosen before the write, never retried).
+
 The UI never imports the SDK; all LegendKeeper and AI calls happen on the server.
 
 ### What the database stores
@@ -429,7 +579,10 @@ content), and non-secret preferences. Phase 2 adds: batch jobs, their items and 
 runs and findings, a small per-page summary from the last audit (document version, structure,
 the first 20,000 characters of text), the tagging taxonomy, and the **migration recovery
 records** (the original and proposed content of each migrated page; never deleted
-automatically). The source text of an import is kept only while the
+automatically). Phase 3 adds: labelled fields and link texts in the per-page summary, copies of
+LegendKeeper timelines and their events as last read, chronology and analysis findings and
+event candidates with your decisions (each citing short passages), analysis runs, saved
+searches, timeline-event write records, and the calendar settings. The source text of an import is kept only while the
 import is open and is deleted when it is completed or cancelled (its SHA-256 hash is kept).
 **API keys are never stored in the database.** Delete `data/` to start fresh.
 
@@ -512,7 +665,7 @@ Historical event. Each keeps game mechanics separate from lore.
 ## Tests
 
 ```sh
-npm test               # 216 unit and contract tests; never touch LegendKeeper, OpenRouter or Anthropic
+npm test               # 278 unit and contract tests; never touch LegendKeeper, OpenRouter or Anthropic
 npm run typecheck      # TypeScript
 npm run check          # both
 ```
@@ -539,6 +692,19 @@ content and secrets, invalid target templates, pages changed after comparison, f
 recovery, restore); the review queue; job summaries and exports; and upgrading a Phase 1
 database.
 
+Phase 3 adds (on a small fictional Greyhawk wiki held by the mock connector): date reading and
+preservation of approximate, ranged, relative, unknown and unconvertible dates; calendar
+settings; chronology built from event pages, fields and timelines; conflicting dates and
+impossible sequences with their sources; event extraction across several pages, merging,
+disagreeing dates kept apart, duplicate prevention and reconsidering decisions when wording
+changes; AI proposals checked against the page (invented quotes dropped, dates outside the
+quote ignored, free daily limit); accepting, editing and drafting candidates; timeline writes
+(preview, approval token, pre-chosen id, refusal of uncertain dates, writes switched off, lost
+reply resolved by reading, no duplicates); entity matching and ambiguous names; explicit versus
+inferred relationships; missing pages; contradictions and naming variants; review queue entries
+and persisted decisions; Task Assistant plans, clarification, the allowed operation set, AI
+confirmation and AI plan validation; combined and saved searches; and every export.
+
 ### Optional integration tests (real LegendKeeper)
 
 These never run with `npm test`. They need explicit opt-in:
@@ -548,7 +714,8 @@ These never run with `npm test`. They need explicit opt-in:
 LKC_INTEGRATION=1 LEGENDKEEPER_API_KEY=lk_... npm run test:integration
 
 # Plus live writes: creates test pages "LK Companion integration test …" under your sandbox page
-# (one to test creation; one to test tag replacement, version-checked content replacement and restore)
+# (one to test creation; one to test tag replacement, version-checked content replacement and restore;
+#  and a throwaway timeline with one test event, to check the timeline event write)
 LKC_INTEGRATION=1 LKC_INTEGRATION_WRITE=1 LKC_SANDBOX_PARENT_ID=<sandbox id> LEGENDKEEPER_API_KEY=lk_... npm run test:integration
 
 # Add LKC_INTEGRATION_CLEANUP=1 to delete those test pages afterwards
@@ -595,6 +762,9 @@ supported part and saying so on screen.
 - **Tag list** needs an ADMIN key; otherwise tags are counted from the index.
 - **Formats**: old Word `.doc`, `.odt`, `.rtf` and spreadsheets are refused with advice. Images and scanned PDFs need AI transcription (on request).
 - **Rate limits**: 120 writes and 300 requests a minute per key. Batches are paced below that, so very large jobs take time (about 100 pages a minute to write, about 4 a second to audit).
+- **Timelines** *(Phase 3)*: the API can read timelines, lanes, events and calendars, and create, change and delete them. The app reads them, and **adds** single events to an existing lane with approval; it does not create timelines, lanes or calendars, and never changes or deletes an event (do that in LegendKeeper). LegendKeeper stores a date's precision (year, month, day) but **not whether it is approximate**, and has no way to say an event is only known relative to another, so such events stay in the local chronology only. `formattedStart` is parsed loosely by LegendKeeper (live test: “c. 576” → Coldeven 576, “-50” → 50 CY, “the 590s” → 590), so the app sends only plain forms it builds itself and checks the result on read-back. Events have a name and an optional page link, but no description field.
+- **Chronology and analysis** work from the page content the last audit read (the first 20,000 characters of each page's text, plus its fields and links); pages not yet read are left out and counted on screen. Rule-based reading finds events and relationships stated in common wording; unusual phrasing needs the optional AI or your own review. Names shorter than three letters are not matched in running text.
+- **Relationships** cannot be written as such: LegendKeeper has no relationship objects. Links can be added to existing pages with a template migration; fields with the page editor in LegendKeeper.
 - **Deleting** pages is deliberately not offered. The tests and probes that create test pages delete only their own pages, and only when explicitly asked.
 - SDK 4.0.0 is new. It is pinned exactly; read the SDK changelog before upgrading.
 
@@ -631,6 +801,13 @@ supported part and saying so on screen.
 | *…is larger than the … byte limit* when adding a file | Files are uploaded one at a time up to `LKC_MAX_DOCUMENT_BYTES` (25 MB by default); split larger files or raise the limit. |
 | Database problems | Restore your backup of `data/` (see *Backups*), or stop the app and delete `data/` to start fresh (your LegendKeeper project is not affected, but the app's history and recovery records are lost). |
 | `npm ci` fails while compiling something (`node-gyp`, `MSBuild`, Windows SDK) | You have an older copy of the project that used a compiled database add-on. Download the latest version; it needs no build tools. |
+| Chronology is empty, or misses infobox dates | Run a Wiki Health audit (it reads the pages). Pages read before Phase 3 need one more audit to record their fields. |
+| Timeline events show under another calendar, or “not linked to a calendar setting” | Link the LegendKeeper calendar to one of your calendars on Chronology → Calendars (`lkCalendarIds`), or choose that calendar in the filter. |
+| *The date is approximate … LegendKeeper cannot record that a date is uncertain* | Edit the accepted event to the exact date you have decided on, or keep it in the local chronology only. |
+| A timeline write says *uncertain* | Press *Check outcome*: it looks for the event by its planned id; nothing is sent again. |
+| *“…” matches N pages. Which one?* (Task Assistant) | Choose the page in the plan, or write the page id or link in your request. |
+| *This plan sends page text to the AI provider. Confirm that first.* | Tick the confirmation under the plan after reading what will be sent, or rephrase the request to avoid the comparison. |
+| *The AI proposed a plan the app does not allow* | The AI planner used an operation outside the list; rephrase, or use *Make a plan* without AI. |
 | *Next.js is not installed in this folder* | Run `npm ci` in the folder that contains `package.json` and wait until it finishes. |
 
 ## Project layout
