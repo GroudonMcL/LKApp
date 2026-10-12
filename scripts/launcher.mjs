@@ -124,6 +124,15 @@ async function main() {
     return
   }
   if (!packaged) prepareSourceFolder()
+  else if (!existsSync(join(root, 'app', '.next', 'BUILD_ID'))) {
+    say(
+      '',
+      'This copy of LK Companion is incomplete: the folder app\\.next is missing.',
+      'Download the package again and unzip all of it (some download tools skip folders whose',
+      'names start with a dot). Your settings and data are not affected.',
+    )
+    process.exit(1)
+  }
 
   const env = { ...process.env, NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1', PORT: String(port), HOSTNAME: '127.0.0.1' }
   let logFile = null

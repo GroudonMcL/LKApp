@@ -855,6 +855,7 @@ supported part and saying so on screen.
 | Windows says it protected your PC / asks whether to run *Start LK Companion* | The files came from the internet. Choose *More info → Run anyway*, or unblock the zip before unzipping (right-click → Properties → Unblock). |
 | The small window says *The app did not start within a minute* | Look at `%LOCALAPPDATA%\LK Companion\logs\server.log`. Another program may be using port 3127: close it, or set `LKC_PORT` (e.g. 3130) in the settings file. |
 | Nothing opens after *LK Companion is running* | Open <http://127.0.0.1:3127> in any browser. |
+| *Could not find a production build* or *This copy of LK Companion is incomplete* | The download is missing the `app\.next` folder (packages built before 12 October 2026 had this fault). Download the latest package again and unzip all of it. Your settings and data are kept. |
 | *Next.js is not installed in this folder* | Run `npm ci` in the folder that contains `package.json` and wait until it finishes. |
 
 ## Project layout
