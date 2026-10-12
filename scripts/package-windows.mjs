@@ -124,6 +124,12 @@ title Updating LK Companion
 set "APPDIR=%~f1"
 set "DATADIR=%~f2"
 set "READY=%DATADIR%\\updates\\ready\\LK Companion"
+rem This script removes the downloaded update when it is done, so it must not run from inside it.
+if /i "%~dp0"=="%READY%\\" (
+  copy /y "%~f0" "%TEMP%\\lkc-apply-update.cmd" >nul
+  call "%TEMP%\\lkc-apply-update.cmd" %*
+  exit /b
+)
 if not exist "%APPDIR%\\launcher.mjs" goto wrongfolder
 if not exist "%APPDIR%\\app\\server.js" goto wrongfolder
 if not exist "%READY%\\launcher.mjs" goto nothing
