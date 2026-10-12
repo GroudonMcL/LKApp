@@ -58,8 +58,8 @@ returns data that is checked against a schema.
   through the app and created **as a copy of the *Statblock* template** under the sandbox
   (it kept the template's icon, sidebar Tags box and the infobox's built-in Tags and Aliases
   rows, got the statblock values, and was placed alphabetically); a duplicate copy with the
-  same id refused; a page placed directly before another. *Saving a page as a template* is
-  tested against the official schema and a local server only — see *Known limitations*.
+  same id refused; a page placed directly before another; and, with your permission, a sandbox
+  page saved as the template “LK Companion test template (safe to delete)” and read back.
 - Phase 3 was verified live (12 Oct 2026, test project): LegendKeeper timelines and calendars
   read (2 timelines, 17 events; the project's own Greyhawk calendar linked automatically);
   event discovery over 184 read pages, plus AI discovery and AI planning through free
@@ -837,7 +837,7 @@ LKC_PROBE=1 npx tsx scripts/probe-legendkeeper.ts   # report in data/probe-repor
 These come from the documented LegendKeeper API and SDK 4.1.0. Each is handled by doing the
 supported part and saying so on screen.
 
-- **Templates**: LegendKeeper does not record which template a page came from, so the audit's layout check compares pages with the layout you chose for their page type. A page created from a template takes up to three writes (create, fill, tags and aliases), which are not one transaction: if the second or third fails, the page exists unfinished until you press **Finish the page**. Built-in boxes are kept only where the copied layout has the same container (for example the infobox); any others are listed in the preview as not kept. Plain pages (the option unticked, or a layout copied from an ordinary page) still cannot get the built-in Tags and Aliases boxes (`UNSUPPORTED_KIND`, as documented). **Saving a page as a template** has been checked against LegendKeeper's official schema and a local test server, but not yet against the live service: it can only create a template at the top of the project's templates list, outside the sandbox page, so it was not run without your permission. Its first use is your live check; the app reads the new template back and reports any difference.
+- **Templates**: LegendKeeper does not record which template a page came from, so the audit's layout check compares pages with the layout you chose for their page type. A page created from a template takes up to three writes (create, fill, tags and aliases), which are not one transaction: if the second or third fails, the page exists unfinished until you press **Finish the page**. Built-in boxes are kept only where the copied layout has the same container (for example the infobox); any others are listed in the preview as not kept. Plain pages (the option unticked, or a layout copied from an ordinary page) still cannot get the built-in Tags and Aliases boxes (`UNSUPPORTED_KIND`, as documented).
 - **Tag updates have no version check** (`resources.update` replaces the whole list and takes no `ifMatch`). The app reads right before writing and reads back afterwards, which narrows but cannot fully close the window for a simultaneous edit.
 - **Page content edits do not change a page's `updatedAt`.** Changes are detected with the document's version instead, which needs reading the page; the audit and the review queue's “changed after an audit” therefore notice name, tag and position changes from the index, and content changes at the next audit.
 - **Blocks the API cannot express** (`unsupported`) cannot be read or created; migrations keep them by sending them back by id, and restore relies on them still being in the page.

@@ -64,9 +64,9 @@ as in 4.0.0.
     differences on read-back.
 - Test pages were left in the sandbox, as asked.
 
-## Not yet verified live
-
-- **Saving a page as a template.** It always creates a template at the top of the project's
-  templates list, which is outside the sandbox page, so it was not run without permission. It is
-  covered by schema and contract tests; its first real use reads the template back and reports
-  any difference.
+- **Saving a page as a template** (run once with your permission, as it always creates a
+  template at the top of the templates list, outside the sandbox): the sandbox page
+  “Goblin (template e2e)” saved through the app as **“LK Companion test template (safe to
+  delete)”** (`k35041a9turoeuz8xeekxmx7`). Read back: in the templates list at the top level,
+  with the page's content, sidebar Tags box, icon and tag; the source page unchanged. **Delete
+  that template in LegendKeeper when you like.**
