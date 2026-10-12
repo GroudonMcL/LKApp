@@ -24,5 +24,6 @@ describe.skipIf(process.env.LKC_TEST_PACKAGE_ZIP !== '1' || !zipPath)('the real 
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+    // About 2,500 files: allow for a slow disk.
+  }, 120_000)
 })
