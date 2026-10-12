@@ -20,7 +20,7 @@ import { createTestContext } from './test-context'
  */
 
 const doc = (id: string, blocks: unknown[], version = 'v1') => [{ id: `doc_${id}`, name: 'Main', type: 'page', blocks, version, text: '' }]
-const kv = (rows: [string, unknown][]) => infobox([property(keyValue(rows as never))])
+const kv = (rows: [string, unknown][]) => infobox([property(keyValue(rows.map(([key, value]) => (typeof value === 'string' ? [key, value] : { key, content: value })) as never))])
 const m = (resourceId: string, text: string) => mention({ resourceId, text })
 
 export const IDS = {
@@ -111,7 +111,7 @@ export async function greyhawkContext() {
         name: 'Hold of the Sea Princes',
         tags: ['Location'],
         aliases: ['Sea Princes'],
-        documents: doc(IDS.seaPrinces, [p('The Sea-Princes raided the Lendore Isles in 584 CY. The Sea Princes fell to the Scarlet Brotherhood that same year.')]),
+        documents: doc(IDS.seaPrinces, [p('The Sea-Princes raided the Lendore Isles in 584 CY. The Sea Princes fell to the Scarlet Brotherhood that same year.'), p('Many of the Sea Princes worship Iuz in secret.')]),
       },
       { id: IDS.temple, name: 'Temple of Elemental Evil', tags: ['Location'], documents: doc(IDS.temple, [p('A temple near Hommlet, founded in 569 CY according to rumour... no, the temple was destroyed in 569 CY.')]) },
       { id: IDS.history, name: 'History of the Flanaess', tags: [], documents: doc(IDS.history, [p('Overview.')]) },
