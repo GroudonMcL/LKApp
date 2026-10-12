@@ -158,8 +158,7 @@ function Templates({ recipes, onRecipesChanged }: { recipes: Recipe[]; onRecipes
                       <>
                         Layout of the LegendKeeper {template.definition.lkLayout.sourceKind} “{template.definition.lkLayout.sourceName}” (<code>{template.definition.lkLayout.sourceResourceId}</code>), copied{' '}
                         {formatDate(template.definition.lkLayout.fetchedAt)}.{' '}
-                        {template.definition.lkLayout.sourceKind === 'template' &&
-                          (template.definition.createFromLkTemplate ? 'New pages start as a copy of this template in LegendKeeper. ' : 'New pages are plain pages with this layout. ')}
+                        {template.definition.lkLayout.sourceKind === 'template' && 'New pages start as a copy of this template in LegendKeeper. '}
                         <button type="button" className="link-button" onClick={() => setOpen(open === template.id ? null : template.id)}>
                           {open === template.id ? 'Hide details' : 'What goes where'}
                         </button>
@@ -280,15 +279,6 @@ function TemplateEditor({ initial, pageTypes, busy, onSave, onCancel }: { initia
               The layout comes from the LegendKeeper {definition.lkLayout.sourceKind} “{definition.lkLayout.sourceName}”. To change it, edit it in LegendKeeper and press <strong>Refresh</strong>.
               The section headings and infobox fields below are not used for this template.
             </Notice>
-            {definition.lkLayout.sourceKind === 'template' && (
-              <label className="check">
-                <input type="checkbox" checked={definition.createFromLkTemplate ?? true} onChange={(e) => setDefinition({ ...definition, createFromLkTemplate: e.target.checked })} />
-                <span>
-                  Create pages from the LegendKeeper template itself. Each new page starts as a copy of “{definition.lkLayout.sourceName}” in LegendKeeper (its sidebar, icon, banner, other
-                  tabs and built-in boxes such as Tags), then the app fills its first page tab. Untick to create a plain page with the copied layout only.
-                </span>
-              </label>
-            )}
           </div>
         )}
         <div className="field">

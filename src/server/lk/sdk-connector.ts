@@ -143,6 +143,7 @@ export class SdkConnector implements LegendKeeperConnector {
 
   async createPage(input: CreatePageInput): Promise<CreatedPage> {
     return this.call(async () => {
+      await pace()
       const created = await this.writer.resources.create({
         id: input.resourceId,
         name: input.name,
@@ -167,6 +168,7 @@ export class SdkConnector implements LegendKeeperConnector {
 
   async updateResourceTags(resourceId: string, tags: string[]): Promise<{ tags: string[]; updatedAt: string | null }> {
     return this.call(async () => {
+      await pace()
       const updated = await this.writer.resources.update({ resourceId }, { tags })
       return { tags: updated.tags, updatedAt: updated.updatedAt ?? null }
     })
@@ -174,41 +176,105 @@ export class SdkConnector implements LegendKeeperConnector {
 
   async updateResourceLabels(resourceId: string, labels: { tags: string[]; aliases: string[] }): Promise<{ tags: string[]; aliases: string[] }> {
     return this.call(async () => {
+      await pace()
       const updated = await this.writer.resources.update({ resourceId }, { tags: labels.tags, aliases: labels.aliases })
       return { tags: updated.tags, aliases: updated.aliases }
     })
   }
 
   async createFromTemplate(input: CreateFromTemplateInput): Promise<ResourceDetail> {
-    return this.call(async () =>
-      toDetail(
-        await this.writer.resources.createFromTemplate({
-          templateId: input.templateId,
-          id: input.resourceId,
-          name: input.name,
-          ...(input.parentId ? { parentId: input.parentId } : {}),
-          ...placementOf(input.placement),
-          idempotencyKey: input.idempotencyKey,
-        }),
-      ),
-    )
+    return this.call(async () => {
+      await pace()
+      const created = await this.writer.resources.createFromTemplate({
+        templateId: input.templateId,
+        id: input.resourceId,
+        name: input.name,
+        ...(input.parentId ? { parentId: input.parentId } : {}),
+        ...placementOf(input.placement),
+        idempotencyKey: input.idempotencyKey,
+      })
+      return toDetail(created)
+    })
   }
 
   async saveAsTemplate(input: SaveAsTemplateInput): Promise<ResourceDetail> {
-    return this.call(async () =>
-      toDetail(
-        await this.writer.resources.saveAsTemplate(
-          { resourceId: input.resourceId },
-          { id: input.templateId, name: input.name, includeChildren: input.includeChildren, idempotencyKey: input.idempotencyKey },
-        ),
-      ),
-    )
+    return this.call(async () => {
+      await pace()
+      const saved = await this.writer.resources.saveAsTemplate(
+        { resourceId: input.resourceId },
+        { id: input.templateId, name: input.name, includeChildren: input.includeChildren, idempotencyKey: input.idempotencyKey },
+      )
+      return toDetail(saved)
+    })
   }
 
   async replaceDocumentBlocks(resourceId: string, documentId: string, blocks: unknown[], ifMatch: string): Promise<{ version: string }> {
     return this.call(async () => {
+      await pace()
       const written = await this.writer.documents.replaceBlocks({ resourceId, documentId }, { blocks: blocks as Block[], ifMatch })
       return { version: written.version }
+    })
+  }
+
+  async assignBlockIds(resourceId: string, documentId: string): Promise<{ version: string }> {
+    return this.call(async () => {
+      await pace()
+      return { version: (await this.writer.documents.assignBlockIds({ resourceId, documentId })).version }
+    })
+  }
+
+  async insertBlock(resourceId: string, documentId: string, input: { block: unknown; after?: string; before?: string; parent?: string }, ifMatch: string): Promise<{ version: string }> {
+    return this.call(async () => {
+      await pace()
+      const where = input.after ? { after: input.after } : input.before ? { before: input.before } : input.parent ? { parent: input.parent } : {}
+      const written = await this.writer.blocks.insert({ resourceId, documentId }, { block: input.block as Block, ...where, ifMatch })
+      return { version: written.version }
+    })
+  }
+
+  async updateBlock(resourceId: string, documentId: string, blockId: string, patch: Record<string, unknown>, ifMatch: string): Promise<{ version: string }> {
+    return this.call(async () => {
+      await pace()
+      const written = await this.writer.blocks.update({ resourceId, documentId, blockId }, { ...(patch as object), ifMatch } as never)
+      return { version: (written as { version: string }).version }
+    })
+  }
+
+  async replaceBlock(resourceId: string, documentId: string, blockId: string, block: unknown, ifMatch: string): Promise<{ version: string }> {
+    return this.call(async () => {
+      await pace()
+      const written = await this.writer.blocks.replace({ resourceId, documentId, blockId }, { ...(block as Block), ifMatch })
+      return { version: written.version }
+    })
+  }
+
+  async deleteBlock(resourceId: string, documentId: string, blockId: string, ifMatch: string): Promise<void> {
+    return this.call(async () => {
+      await pace()
+      await this.writer.blocks.delete({ resourceId, documentId, blockId }, { ifMatch })
+    })
+  }
+
+  async updateInfoboxProperty(resourceId: string, documentId: string, blockId: string, propertyId: string, patch: Record<string, unknown>, ifMatch: string): Promise<{ version: string }> {
+    return this.call(async () => {
+      await pace()
+      const written = await this.writer.blocks.updateProperty({ resourceId, documentId, blockId, propertyId }, { ...(patch as object), ifMatch } as never)
+      return { version: (written as { version: string }).version }
+    })
+  }
+
+  async createInfoboxProperty(resourceId: string, documentId: string, blockId: string, property: unknown, ifMatch: string): Promise<{ version: string }> {
+    return this.call(async () => {
+      await pace()
+      const written = await this.writer.blocks.createProperty({ resourceId, documentId, blockId }, { ...(property as object), ifMatch } as never)
+      return { version: (written as { version: string }).version }
+    })
+  }
+
+  async deleteInfoboxProperty(resourceId: string, documentId: string, blockId: string, propertyId: string, ifMatch: string): Promise<void> {
+    return this.call(async () => {
+      await pace()
+      await this.writer.blocks.deleteProperty({ resourceId, documentId, blockId, propertyId }, { ifMatch })
     })
   }
 
@@ -258,6 +324,7 @@ export class SdkConnector implements LegendKeeperConnector {
 
   async createTimelineEvent(input: CreateTimelineEventInput): Promise<TimelineEventInfo> {
     return this.call(async () => {
+      await pace()
       const created = await this.writer.timelines.createEvent(
         { resourceId: input.resourceId, documentId: input.documentId },
         {
@@ -273,6 +340,25 @@ export class SdkConnector implements LegendKeeperConnector {
       return toEvent(created, input.resourceId, input.documentId)
     })
   }
+}
+
+/**
+ * Paces writes below LegendKeeper's limit of 120 a minute per key: a short burst (up to 15) goes
+ * straight through, then at most one write every 600 ms (100 a minute). Shared by every
+ * connector in this process, so a batch and a single page together stay under the limit.
+ */
+export const WRITE_PACING = { burst: 15, intervalMs: 600 }
+const PACE = Symbol.for('lk-companion.write-pace')
+
+async function pace(): Promise<void> {
+  const store = globalThis as unknown as Record<symbol, { tokens: number; at: number } | undefined>
+  const now = Date.now()
+  const state = store[PACE] ?? { tokens: WRITE_PACING.burst, at: now }
+  state.tokens = Math.min(WRITE_PACING.burst, state.tokens + (now - state.at) / WRITE_PACING.intervalMs) - 1
+  state.at = now
+  store[PACE] = state
+  // A negative balance is the queue of writes ahead of this one.
+  if (state.tokens < 0) await new Promise((resolve) => setTimeout(resolve, -state.tokens * WRITE_PACING.intervalMs))
 }
 
 function placementOf(placement: Placement | null | undefined): Placement {

@@ -96,13 +96,17 @@ describe('layouts copied from LegendKeeper', () => {
       Senses: 'Darkvision 60 ft.; Passive Perception 9',
       Languages: 'Common, Goblin',
     })
-    // Rows the source has nothing for are left out.
-    expect(rows).not.toHaveProperty('Resistances')
-    expect(rows).not.toHaveProperty('Immunities')
-    // Fields without a row of their own: type line first, the rest last.
+    // Rows the source has nothing for stay, blank (the template's example value removed).
+    expect(rows).toMatchObject({ Resistances: '', Immunities: '' })
+    // The template's rows keep the template's order exactly; fields without a row of their own
+    // come after them, at the end of the last group.
+    const templateKeys: string[] = []
+    walk(templateBlocks as Block[], (block) => {
+      if (block.kind === 'keyValue') for (const row of block.rows) templateKeys.push(row.key)
+    })
     const keys = Object.keys(rows)
-    expect(keys.slice(0, 3)).toEqual(['Size', 'Creature type', 'Alignment'])
-    expect(keys).toContain('Gear')
+    expect(keys.slice(0, templateKeys.length)).toEqual(templateKeys)
+    expect(keys.slice(templateKeys.length)).toEqual(expect.arrayContaining(['Size', 'Creature type', 'Alignment', 'Gear']))
 
     // Grid and inline displays are kept.
     const displays: string[] = []
@@ -140,12 +144,20 @@ describe('layouts copied from LegendKeeper', () => {
     expect(images).toBe(0)
   })
 
+  it('fills a “Source” row that matches no field with where the content came from', () => {
+    const page = goblinDraft()
+    const withSource = TemplateDefinition.parse({ ...template(), lkLayout: { ...layout(), blocks: [{ kind: 'keyValue', rows: [{ key: 'Source:', content: [] }, { key: 'Armour Class', content: [] }] }] } })
+    const rows = rowsOf(renderPageBlocks(page, { pageType: creature, template: withSource }))
+    expect(rows['Source:']).toBe('Test')
+    expect(Object.keys(rows).slice(0, 2)).toEqual(['Source:', 'Armour Class'])
+  })
+
   it('writes only confirmed values', () => {
     const page = goblinDraft()
     const ac = page.fields.find((field) => field.key === 'armorClass')!
     ac.status = 'uncertain'
     const rows = rowsOf(renderPageBlocks(page, { pageType: creature, template: template() }))
-    expect(rows).not.toHaveProperty('Armour Class')
+    expect(rows['Armour Class']).toBe('') // kept, blank
   })
 
   it('adds a Sources section only when the template asks for it', () => {

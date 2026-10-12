@@ -25,7 +25,7 @@ import { getDraft } from './drafts'
 import { ServiceError } from './errors'
 import { cancelImport } from './imports'
 import { runTransform, type TransformMode } from './transform'
-import { approveWrite, checkOutcome, dryRunWrite, prepareWrite, writesPerPage } from './write'
+import { approveWrite, checkOutcome, dryRunWrite, prepareWrite } from './write'
 
 /**
  * Batch import: many files, many records, one reviewable job.
@@ -769,9 +769,9 @@ export async function runBatch(ctx: AppContext, batchId: string, input: { wait?:
       if (cancelRequested(ctx, batchId)) break
       const outcome = await runItem(ctx, item, parents)
       counts[outcome]++
-      // Pages created from a LegendKeeper template take up to 3 writes: keep under 120 writes a minute.
-      const draft = item.jobId ? ctx.repos.drafts.getByJob(item.jobId) : null
-      if (index < approved.length - 1) await sleep(BATCH_TIMING.writeSpacingMs * (draft ? writesPerPage(ctx, draft) : 1))
+      // The connector also paces every write below LegendKeeper's limit (pages made from a
+      // template take several small writes each).
+      if (index < approved.length - 1) await sleep(BATCH_TIMING.writeSpacingMs)
     }
     recordAudit(ctx, {
       operation: 'batch.run',

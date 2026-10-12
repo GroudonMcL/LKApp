@@ -1,6 +1,9 @@
 import 'server-only'
 import { p } from '@legendkeeper/sdk/blocks'
 import { idempotencyKeyFor, newAppId, newLkResourceId } from '@/core/ids'
+
+/** Ids for blocks the app inserts: chosen in advance, so a repeated insert is refused instead of doubled. */
+const newBlockId = () => newLkResourceId()
 import { acceptedTags, type CanonicalPage } from '@/core/page-model'
 import { resolvePageType } from '@/core/resolve'
 import type { AppContext } from '../context'
@@ -15,6 +18,9 @@ import { knownProjectId } from './connection'
 import { getDraft, recipeForDraft, templateForDraft, validateWithRender } from './drafts'
 import { ServiceError } from './errors'
 import { isLkTemplate } from './lk-templates'
+import { isEmptyImage, skeletonFromBlocks } from '@/core/lk-layout'
+import { comparableContent, hasAllIds, planFill, type FillOp } from '@/core/template-fill'
+import { renderFromLayout } from '../lk/render-layout'
 
 /**
  * Guarded single-page creation.
@@ -94,22 +100,10 @@ function renderFor(ctx: AppContext, draft: Draft, page: CanonicalPage, plannedRe
   const provisional: CreatePageInput = buildCreatePayload(page, { pageType, template }, plannedResourceId, 'pending')
   const layout = template.lkLayout
   // Only set when used, so content fingerprints of plain pages are unchanged.
-  if (layout?.sourceKind === 'template' && template.createFromLkTemplate) provisional.templateId = layout.sourceResourceId
+  if (layout?.sourceKind === 'template') provisional.templateId = layout.sourceResourceId
   const hash = payloadHash(provisional)
   const payload = { ...provisional, idempotencyKey: idempotencyKeyFor('lkc', plannedResourceId, hash.slice(0, 16)) }
   return { payload, hash }
-}
-
-/**
- * LegendKeeper writes one approved page takes: 1 for a plain page; up to 3 for a page created
- * from a LegendKeeper template (create, fill, tags and aliases). Batches space records by it.
- */
-export function writesPerPage(ctx: AppContext, draft: Draft): number {
-  const recipe = recipeForDraft(ctx, draft)
-  const pageType = recipe ? resolvePageType(recipe) : null
-  if (!recipe || !pageType) return 1
-  const { template } = templateForDraft(ctx, pageType, draft.page, recipe)
-  return template.lkLayout?.sourceKind === 'template' && template.createFromLkTemplate ? 3 : 1
 }
 
 // ── Step 1: prepare (final preview) ─────────────────────────────────────────
@@ -142,6 +136,8 @@ async function prepareInternal(ctx: AppContext, draftId: string, options: Prepar
     recordAudit(ctx, { operation: 'write.prepare', outcome: 'blocked', draftId, jobId: draft.jobId, message: blockers.map((b) => b.message).join(' '), details: { blockers } })
     throw new ServiceError(409, 'Writing is not possible yet.', blockers.map((b) => b.message), 'BLOCKED')
   }
+  // A page made from a LegendKeeper template: read the template now, so the preview matches it.
+  const synced = await syncTemplateLayout(ctx, draft)
   const recipe = recipeForDraft(ctx, draft)!
   const job = ctx.repos.jobs.get(draft.jobId)
   const { findings } = validateWithRender(ctx, draft.page, recipe, job)
@@ -209,7 +205,8 @@ async function prepareInternal(ctx: AppContext, draftId: string, options: Prepar
 
   // Created from a LegendKeeper template: confirm it is still a template and say what it brings.
   const rendered = renderFor(ctx, draft, page, draft.plannedResourceId ?? 'a0000000000000000000000a')
-  const fromTemplate = rendered.payload.templateId ? await describeTemplate(ctx, rendered.payload.templateId, rendered.payload.blocks) : null
+  const fromTemplate = rendered.payload.templateId ? (synced?.template ?? null) : null
+  if (synced?.changed) warnings.push(`The template “${synced.template.name}” was changed in LegendKeeper since its layout was copied; this preview uses it as it is now.`)
   const placement = await planPlacement(ctx, recipe, page.parentId, rendered.payload.name).catch((error) => ({
     placement: null,
     description: `At the end (the pages beside it could not be read just now: ${toConnectorError(error).message})`,
@@ -311,6 +308,15 @@ export async function approveWrite(ctx: AppContext, draftId: string, input: { ap
     throw new ServiceError(409, 'The draft changed after the final preview. Open the preview again and re-approve.')
   }
 
+  // From a template: it must still be as it was at the final preview (otherwise nothing is created).
+  if (payload.templateId) {
+    const { resource, blocks } = await readTemplate(ctx, payload.templateId)
+    const layout = templateForDraft(ctx, resolvePageType(recipe)!, draft.page, recipe).template.lkLayout
+    if (!layout || stableStringify(skeletonFromBlocks(blocks).blocks) !== stableStringify(layout.blocks)) {
+      throw new ServiceError(409, `The template “${resource.name}” was changed in LegendKeeper after the final preview. Open the final preview again.`)
+    }
+  }
+
   // Exactly one request can move the draft from awaiting_approval to writing.
   if (!ctx.repos.drafts.claimForWrite(draft.id, input.approvalToken)) {
     throw new ServiceError(409, 'This write has already been started.')
@@ -356,41 +362,80 @@ export interface TemplateUse {
   sidebarProperties: number
   tags: string[]
   aliases: string[]
-  /** Built-in boxes of that tab the API cannot write (e.g. the infobox's Tags row); the new page keeps them. */
+  /** Parts of that tab the API cannot write (built-in Tags/Aliases boxes, empty image slots); the page keeps them as they are. */
   keptBoxes: string[]
-  /** Built-in boxes the draft's layout has no place for; the new page will not have them. */
-  lostBoxes: string[]
 }
 
-/** Reads the template the page will be copied from. Read-only; refuses if it is not a template any more. */
-async function describeTemplate(ctx: AppContext, templateId: string, renderedBlocks: unknown[]): Promise<TemplateUse> {
+type AnyBlock = Record<string, unknown>
+
+/** The template and its first page tab, as LegendKeeper has them now. Read-only. */
+async function readTemplate(ctx: AppContext, templateId: string) {
   let resource: ResourceDetail
   try {
     resource = await ctx.connector().getResource(templateId)
   } catch (error) {
-    throw new ServiceError(409, `The LegendKeeper template ${templateId} could not be read: ${toConnectorError(error).message} Refresh the template on the Recipes & templates page, or untick “Create pages from the LegendKeeper template itself”.`)
+    throw new ServiceError(409, `The LegendKeeper template ${templateId} could not be read: ${toConnectorError(error).message} Copy another template's layout on the Recipes & templates page if it was deleted.`)
   }
   if (!(await isLkTemplate(ctx, resource))) {
-    throw new ServiceError(409, `“${resource.name}” is no longer a LegendKeeper template. Untick “Create pages from the LegendKeeper template itself” for this template, or copy the layout of another template.`)
+    throw new ServiceError(409, `“${resource.name}” is no longer a LegendKeeper template. Copy the layout of another template on the Recipes & templates page.`)
   }
   const tab = firstPageTab(resource)
   if (!tab) throw new ServiceError(409, `The LegendKeeper template “${resource.name}” has no page tab for the content.`)
-  let boxes = { kept: [] as string[], lost: [] as string[] }
+  let blocks: unknown[]
   try {
-    boxes = keepTemplateBoxes(renderedBlocks, (await ctx.connector().getDocumentContent(resource.id, tab.id)).blocks)
-  } catch {
-    /* advisory */
+    blocks = (await ctx.connector().getDocumentContent(resource.id, tab.id)).blocks
+  } catch (error) {
+    throw new ServiceError(502, `The template “${resource.name}” could not be read: ${toConnectorError(error).message}`)
+  }
+  return { resource, tab, blocks }
+}
+
+/** Parts of a tab the API cannot write, by name. */
+function unwritableParts(blocks: unknown): string[] {
+  const parts: string[] = []
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) return value.forEach(visit)
+    if (!value || typeof value !== 'object') return
+    const block = value as AnyBlock
+    if (block.kind === 'unsupported') parts.push(typeof block.title === 'string' && block.title ? block.title : 'a built-in box')
+    else if (isEmptyImage(block)) parts.push(`the empty ${typeof block.title === 'string' && block.title ? block.title : 'image'} slot`)
+    else Object.values(block).forEach(visit)
+  }
+  visit(blocks)
+  return parts
+}
+
+/**
+ * Keeps the local copy of the template's layout in step with the template in LegendKeeper, so the
+ * final preview shows exactly what will be written into the new page. Read-only towards
+ * LegendKeeper. Null when the draft's template is not a LegendKeeper template.
+ */
+async function syncTemplateLayout(ctx: AppContext, draft: Draft): Promise<{ template: TemplateUse; changed: boolean } | null> {
+  const recipe = recipeForDraft(ctx, draft)
+  const pageType = recipe ? resolvePageType(recipe) : null
+  if (!recipe || !pageType) return null
+  const { record, template } = templateForDraft(ctx, pageType, draft.page, recipe)
+  const layout = template.lkLayout
+  if (!layout || layout.sourceKind !== 'template') return null
+  const { resource, tab, blocks } = await readTemplate(ctx, layout.sourceResourceId)
+  const fresh = skeletonFromBlocks(blocks)
+  const changed = stableStringify(fresh.blocks) !== stableStringify(layout.blocks)
+  if (changed && record && record.origin === 'local') {
+    ctx.repos.templates.update(record.id, { ...record.definition, lkLayout: { ...layout, sourceName: resource.name, documentName: tab.name, blocks: fresh.blocks, droppedParts: fresh.droppedParts, fetchedAt: ctx.now().toISOString() } })
+    recordAudit(ctx, { operation: 'template.refresh', outcome: 'success', draftId: draft.id, message: `${record.definition.name} ← ${resource.name} (changed in LegendKeeper; refreshed for the final preview)`, details: { templateId: record.id, sourceResourceId: resource.id } })
   }
   return {
-    id: resource.id,
-    name: resource.name,
-    tabs: resource.documents.map((d) => ({ name: d.name, type: d.type })),
-    filledTab: tab.name,
-    sidebarProperties: resource.properties.length,
-    tags: resource.tags,
-    aliases: resource.aliases,
-    keptBoxes: boxes.kept,
-    lostBoxes: boxes.lost,
+    changed,
+    template: {
+      id: resource.id,
+      name: resource.name,
+      tabs: resource.documents.map((d) => ({ name: d.name, type: d.type })),
+      filledTab: tab.name,
+      sidebarProperties: resource.properties.length,
+      tags: resource.tags,
+      aliases: resource.aliases,
+      keptBoxes: unwritableParts(blocks),
+    },
   }
 }
 
@@ -398,78 +443,12 @@ function firstPageTab(resource: ResourceDetail) {
   return [...resource.documents].filter((d) => d.type === 'page').sort((a, b) => ((a.rank ?? '') < (b.rank ?? '') ? -1 : (a.rank ?? '') > (b.rank ?? '') ? 1 : 0))[0] ?? null
 }
 
-type AnyBlock = Record<string, unknown>
-type Step = { key: string; index: number }
-const isObject = (value: unknown): value is AnyBlock => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-const boxTitle = (block: AnyBlock) => (typeof block.title === 'string' && block.title ? block.title : 'a box the API cannot show')
-
-/** Every `unsupported` item (built-in boxes such as Tags, also as infobox rows), with where it sits. */
-function findUnsupported(blocks: unknown[]): { path: Step[]; block: AnyBlock; containerKind: string | null }[] {
-  const found: { path: Step[]; block: AnyBlock; containerKind: string | null }[] = []
-  const visit = (items: unknown[], path: Step[], key: string, containerKind: string | null) => {
-    items.forEach((item, index) => {
-      if (!isObject(item)) return
-      const here = [...path, { key, index }]
-      if (item.kind === 'unsupported') return void found.push({ path: here, block: item, containerKind })
-      for (const [childKey, value] of Object.entries(item)) if (Array.isArray(value)) visit(value, here, childKey, typeof item.kind === 'string' ? item.kind : null)
-    })
-  }
-  visit(blocks, [], 'blocks', null)
-  return found
-}
-
-/** The array at `path` (the container of an item), or null when the structure differs there. */
-function containerAt(root: unknown[], path: Step[], kind: string | null): unknown[] | null {
-  let items: unknown[] = root
-  for (let i = 0; i < path.length - 1; i++) {
-    const node = items[path[i]!.index]
-    const next = isObject(node) ? node[path[i + 1]!.key] : undefined
-    if (!Array.isArray(next)) return null
-    if (i === path.length - 2 && kind !== null && (node as AnyBlock).kind !== kind) return null
-    items = next
-  }
-  return items
-}
-
-/** The first array under `key` of a block of this kind, anywhere. */
-function firstContainerOf(root: unknown[], kind: string, key: string): unknown[] | null {
-  for (const item of root) {
-    if (!isObject(item)) continue
-    if (item.kind === kind && Array.isArray(item[key])) return item[key] as unknown[]
-    for (const value of Object.values(item)) {
-      if (!Array.isArray(value)) continue
-      const inner = firstContainerOf(value, kind, key)
-      if (inner) return inner
-    }
-  }
-  return null
-}
-
-/**
- * The draft's blocks with the template copy's built-in boxes (`unsupported` items such as the
- * Tags and Aliases rows of an infobox) put back where they were: same container, same position.
- * LegendKeeper keeps such an item on a replace only when it is sent back with its id; the API
- * cannot create them. Boxes whose container the draft's layout does not have are reported.
- */
-export function keepTemplateBoxes(rendered: unknown[], current: unknown[]): { blocks: unknown[]; kept: string[]; lost: string[] } {
-  const out = structuredClone(rendered)
-  const kept: string[] = []
-  const lost: string[] = []
-  for (const { path, block, containerKind } of findUnsupported(current)) {
-    if (!block.id) {
-      lost.push(boxTitle(block))
-      continue
-    }
-    const last = path[path.length - 1]!
-    const target = path.length === 1 ? out : (containerAt(out, path, containerKind) ?? (containerKind ? firstContainerOf(out, containerKind, last.key) : null))
-    if (!target) {
-      lost.push(boxTitle(block))
-      continue
-    }
-    target.splice(Math.min(last.index, target.length), 0, block)
-    kept.push(boxTitle(block))
-  }
-  return { blocks: out, kept, lost }
+/** The draft laid out in the blocks of the template copy itself (ids kept, image slots kept). */
+function renderIntoCopy(ctx: AppContext, draft: Draft, copyBlocks: unknown[]): unknown[] {
+  const recipe = recipeForDraft(ctx, draft)!
+  const pageType = resolvePageType(recipe)!
+  const { template } = templateForDraft(ctx, pageType, draft.page, recipe)
+  return renderFromLayout(draft.page, pageType, { ...template.lkLayout!, blocks: copyBlocks as AnyBlock[] }, template.includeSourcesSection, { keepEmptyImages: true })
 }
 
 /** Union, keeping order, ignoring case for duplicates. */
@@ -485,32 +464,123 @@ export function mergeLabels(first: string[], second: string[]): string[] {
   return out
 }
 
+const FILL_PLAN = (draftId: string) => `write.templateFill.${draftId}`
+
+/** A fill in progress: the edits worked out once, and how many are done (so it can resume). */
+interface FillState {
+  resourceId: string
+  documentId: string
+  ops: FillOp[]
+  done: number
+}
+
+/** One edit. Returns the new document version, or null when LegendKeeper gives none (deletes). */
+async function applyFillOp(connector: ReturnType<AppContext['connector']>, resourceId: string, documentId: string, op: FillOp, version: string): Promise<string | null> {
+  // An edit repeated after its reply was lost finds itself already done: that counts as done.
+  const already = (error: unknown, kind: 'duplicate_id' | 'not_found') => error instanceof ConnectorError && error.kind === kind
+  switch (op.op) {
+    case 'replaceAll':
+      return (await connector.replaceDocumentBlocks(resourceId, documentId, op.blocks, version)).version
+    case 'replace':
+      return (await connector.replaceBlock(resourceId, documentId, op.blockId, op.block, version)).version
+    case 'update':
+      return (await connector.updateBlock(resourceId, documentId, op.blockId, op.patch, version)).version
+    case 'updateProperty':
+      return (await connector.updateInfoboxProperty(resourceId, documentId, op.blockId, op.propertyId, op.patch, version)).version
+    case 'insert':
+      try {
+        return (await connector.insertBlock(resourceId, documentId, { block: op.block, after: op.after, before: op.before, parent: op.parent }, version)).version
+      } catch (error) {
+        if (already(error, 'duplicate_id')) return null
+        throw error
+      }
+    case 'createProperty':
+      try {
+        return (await connector.createInfoboxProperty(resourceId, documentId, op.blockId, op.property, version)).version
+      } catch (error) {
+        if (already(error, 'duplicate_id')) return null
+        throw error
+      }
+    case 'delete':
+      try {
+        await connector.deleteBlock(resourceId, documentId, op.blockId, version)
+      } catch (error) {
+        if (!already(error, 'not_found')) throw error
+      }
+      return null
+    case 'deleteProperty':
+      try {
+        await connector.deleteInfoboxProperty(resourceId, documentId, op.blockId, op.propertyId, version)
+      } catch (error) {
+        if (!already(error, 'not_found')) throw error
+      }
+      return null
+  }
+}
+
+const describeOp = (op: FillOp) =>
+  op.op === 'replaceAll' ? 'writing the page tab' : op.op === 'delete' || op.op === 'deleteProperty' ? `removing the template's ${op.label}` : op.op === 'insert' || op.op === 'createProperty' ? `adding ${op.label}` : `filling ${op.label}`
+
 /**
- * Fills a page just created as a copy of a template: replaces its first page tab with the
- * approved content (version-checked), then adds the draft's tags and aliases. Never creates
- * anything, so it is safe to repeat. Reads the page back at the end.
+ * Fills a page just created as a copy of a template, in place: the draft is laid out in the
+ * copy's own blocks (so the template's order, image slots and built-in boxes stay exactly as
+ * they are), checked against the approved content, and written as small edits (see
+ * core/template-fill.ts), each with the document version it expects. Then the draft's tags and
+ * aliases are added. Never creates the page, so it is safe to repeat; a fill that stopped
+ * resumes where it stopped. Reads the page back at the end.
  */
 async function fillFromTemplate(ctx: AppContext, draftId: string, resourceId: string, payload: CreatePageInput, auditBase: AuditBase, label: string) {
   const connector = ctx.connector()
   let step = 'reading the new page'
+  let writes = 0
   try {
     const resource = await connector.getResource(resourceId)
     const tab = firstPageTab(resource)
     if (!tab) throw new Error('The new page has no page tab to fill.')
-    step = 'reading its page tab'
-    const content = await connector.getDocumentContent(resourceId, tab.id)
-    step = 'filling its page tab'
-    const { blocks } = keepTemplateBoxes(payload.blocks, content.blocks)
-    if (stableStringify(content.blocks) !== stableStringify(blocks)) await connector.replaceDocumentBlocks(resourceId, tab.id, blocks, content.version)
+    let state = ctx.repos.settings.get<FillState>(FILL_PLAN(draftId))
+    let version: string | null = null
+    if (!state || state.resourceId !== resourceId) {
+      step = 'reading its page tab'
+      let content = await connector.getDocumentContent(resourceId, tab.id)
+      if (!hasAllIds(content.blocks)) {
+        step = 'preparing its page tab'
+        await connector.assignBlockIds(resourceId, tab.id)
+        writes++
+        content = await connector.getDocumentContent(resourceId, tab.id)
+      }
+      step = 'working out the changes'
+      const desired = renderIntoCopy(ctx, getDraft(ctx, draftId), content.blocks)
+      if (comparableContent(desired) !== comparableContent(payload.blocks)) {
+        throw new Error('The template was changed in LegendKeeper after the final preview, so the page was not filled (nothing of the template was removed). Fill it in LegendKeeper, or delete it there and import again.')
+      }
+      state = { resourceId, documentId: tab.id, ops: planFill(content.blocks, desired, newBlockId), done: 0 }
+      ctx.repos.settings.set(FILL_PLAN(draftId), state)
+      version = content.version
+    }
+    while (state.done < state.ops.length) {
+      const op = state.ops[state.done]!
+      step = describeOp(op)
+      if (version === null) version = (await connector.getDocumentContent(resourceId, state.documentId)).version
+      version = await applyFillOp(connector, resourceId, state.documentId, op, version)
+      writes++
+      state = { ...state, done: state.done + 1 }
+      ctx.repos.settings.set(FILL_PLAN(draftId), state)
+    }
     step = 'adding the tags and aliases'
-    const tags = mergeLabels(resource.tags, payload.tags)
-    const aliases = mergeLabels(resource.aliases, payload.aliases)
-    if (stableStringify(tags) !== stableStringify(resource.tags) || stableStringify(aliases) !== stableStringify(resource.aliases)) await connector.updateResourceLabels(resourceId, { tags, aliases })
-    const created: CreatedPage = { resourceId, name: resource.name, parentId: resource.parentId, tags, documentId: tab.id, documentType: 'page' }
+    const current = await connector.getResource(resourceId)
+    const tags = mergeLabels(current.tags, payload.tags)
+    const aliases = mergeLabels(current.aliases, payload.aliases)
+    if (stableStringify(tags) !== stableStringify(current.tags) || stableStringify(aliases) !== stableStringify(current.aliases)) {
+      await connector.updateResourceLabels(resourceId, { tags, aliases })
+      writes++
+    }
+    ctx.repos.settings.set(FILL_PLAN(draftId), null)
+    recordAudit(ctx, { ...auditBase, resourceId, operation: 'write.fill', outcome: 'success', approval: 'approved', message: `Filled “${current.name}” in place: ${state.ops.length} edit(s) to its page tab`, details: { edits: state.ops.map(describeOp), writes } })
+    const created: CreatedPage = { resourceId, name: current.name, parentId: current.parentId, tags, documentId: state.documentId, documentType: 'page' }
     return await finishCreated(ctx, draftId, created, { ...payload, tags, aliases }, auditBase, label)
   } catch (error) {
     const failure = error instanceof ConnectorError ? error : new ConnectorError('unknown', error instanceof Error ? error.message : String(error), { outcome: 'not_applied' })
-    const message = `The page was created from the template (${resourceId}), but ${step} did not finish: ${failure.message} Nothing else was created. Use “Finish the page” to repeat the remaining steps.`
+    const message = `The page was created from the template (${resourceId}), but ${step} did not finish: ${failure.message} Nothing else was created. Use “Finish the page” to carry on from there.`
     const draft = getDraft(ctx, draftId)
     ctx.repos.drafts.setStatus(draftId, 'write_incomplete', { writeError: message, createdResourceId: resourceId, page: { ...draft.page, lkResourceId: resourceId } })
     recordAudit(ctx, { ...auditBase, resourceId, operation: 'write.fill', outcome: 'failure', approval: 'approved', errorCode: failure.details.code ?? failure.kind, requestId: failure.details.requestId ?? null, message })

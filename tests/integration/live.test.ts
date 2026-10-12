@@ -199,9 +199,8 @@ describe.skipIf(!enabled)('live LegendKeeper — templates (read-only)', () => {
 })
 
 describe.skipIf(!writeEnabled)('live LegendKeeper — page from a template, under the sandbox (SDK 4.1.0)', () => {
-  it('creates a copy of a template with a planned id, refuses a duplicate, fills its first tab keeping built-in boxes, and places a page beside it', async () => {
-    const { keepTemplateBoxes } = await import('@/server/services/write')
-    const { skeletonFromBlocks } = await import('@/core/lk-layout')
+  it('creates a copy of a template with a planned id, refuses a duplicate, fills it in place keeping order, image slots and built-in boxes, and places a page beside it', async () => {
+    const { hasAllIds, planFill } = await import('@/core/template-fill')
     const lk = connector()
     const sandbox = process.env.LKC_SANDBOX_PARENT_ID!
     // The template whose first page tab has the most built-in boxes the API cannot write (e.g. infobox Tags rows).
@@ -228,19 +227,35 @@ describe.skipIf(!writeEnabled)('live LegendKeeper — page from a template, unde
     await expect(lk.createFromTemplate({ ...input, idempotencyKey: `${input.idempotencyKey}.again` })).rejects.toMatchObject({ kind: 'duplicate_id' })
 
     const tab = [...created.documents].filter((d) => d.type === 'page').sort((a, b) => ((a.rank ?? '') < (b.rank ?? '') ? -1 : 1))[0]!
-    const before = await lk.getDocumentContent(resourceId, tab.id)
+    // Filled in place, as the app does: ids first, then small edits planned against the copy.
+    let before = await lk.getDocumentContent(resourceId, tab.id)
+    if (!hasAllIds(before.blocks)) {
+      await lk.assignBlockIds(resourceId, tab.id)
+      before = await lk.getDocumentContent(resourceId, tab.id)
+    }
     const boxesBefore = countBoxes(before.blocks)
-    // As the app does: the copied layout (built-in boxes removed, as the API cannot write them)
-    // plus a marker, then the copy's boxes sent back by id in their places.
     const marker = 'Filled by the LK Companion integration test.'
-    const { blocks: skeleton } = skeletonFromBlocks(before.blocks)
-    const filled = keepTemplateBoxes([...skeleton, p(marker)], before.blocks)
-    expect(filled.lost).toEqual([])
-    await lk.replaceDocumentBlocks(resourceId, tab.id, filled.blocks, before.version)
+    // Every key-value row blanked (as for a page with no values), plus one new paragraph at the end.
+    const blank = (value: unknown): unknown =>
+      Array.isArray(value) ? value.map(blank) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, k === 'rows' && Array.isArray(v) && v.every((r) => r && typeof r === 'object' && 'key' in r) ? v.map((r) => ({ ...r, content: [] })) : blank(v)])) : value
+    const desired = [...(blank(before.blocks) as unknown[]), p(marker)]
+    let version = before.version
+    let n = 0
+    for (const op of planFill(before.blocks, desired, () => `${resourceId.slice(0, 8)}b${n++}`.padEnd(24, '0'))) {
+      if (op.op === 'replaceAll') version = (await lk.replaceDocumentBlocks(resourceId, tab.id, op.blocks, version)).version
+      else if (op.op === 'updateProperty') version = (await lk.updateInfoboxProperty(resourceId, tab.id, op.blockId, op.propertyId, op.patch, version)).version
+      else if (op.op === 'replace') version = (await lk.replaceBlock(resourceId, tab.id, op.blockId, op.block, version)).version
+      else if (op.op === 'insert') version = (await lk.insertBlock(resourceId, tab.id, op, version)).version
+      else throw new Error(`unexpected ${op.op}`)
+    }
     const after = await lk.getDocumentContent(resourceId, tab.id)
     expect(after.text).toContain(marker)
     expect(countBoxes(after.blocks)).toBe(boxesBefore)
-    console.info(`Template “${template.name}”: ${template.documents.length} tab(s), ${template.properties.length} sidebar propert(ies); built-in boxes kept after filling: ${filled.kept.join(', ') || 'none'}.`)
+    // Row keys in the same order, all blank; image slots still there.
+    const keysOf = (blocks: unknown[]) => JSON.stringify(blocks).match(/"key":"[^"]*"/g) ?? []
+    expect(keysOf(after.blocks)).toEqual(keysOf(before.blocks))
+    expect(JSON.stringify(after.blocks).match(/"kind":"image"/g)?.length ?? 0).toBe(JSON.stringify(before.blocks).match(/"kind":"image"/g)?.length ?? 0)
+    console.info(`Template “${template.name}”: ${template.documents.length} tab(s), ${template.properties.length} sidebar propert(ies); filled in place keeping ${boxesBefore} built-in box(es), its image slots and its row order.`)
 
     const labels = await lk.updateResourceLabels(resourceId, { tags: [...created.tags, 'LKC integration test'], aliases: ['LKC template test'] })
     expect(labels.tags).toContain('LKC integration test')
@@ -259,5 +274,40 @@ describe.skipIf(!writeEnabled)('live LegendKeeper — page from a template, unde
     const order = siblings.sort((a, b) => ((a.rank ?? '') < (b.rank ?? '') ? -1 : (a.rank ?? '') > (b.rank ?? '') ? 1 : 0)).map((s) => s.id)
     expect(order.indexOf(plainId)).toBe(order.indexOf(resourceId) - 1)
     console.info(`Left ${resourceId} (${name}) and ${plainId} under the sandbox.`)
+  })
+})
+
+describe.skipIf(!enabled)('live LegendKeeper — template example text (read-only)', () => {
+  it('leaves no example text of any template on a page with nothing to fill in', async () => {
+    const { renderFromLayout } = await import('@/server/lk/render-layout')
+    const { findBuiltInPageType } = await import('@/core/page-types')
+    const { CanonicalPage } = await import('@/core/page-model')
+    const lk = connector()
+    const kindFor = (name: string) => (/stat\s*block|creature|monster/i.test(name) ? 'creature' : /item|weapon|armou?r/i.test(name) ? 'magic_item' : /location|place|city/i.test(name) ? 'location' : /rule|spell|class/i.test(name) ? 'rule' : 'npc')
+    // The text a template holds (not its block titles or row keys, which are structure).
+    const texts = (value: unknown, out: string[] = []): string[] => {
+      if (Array.isArray(value)) value.forEach((v) => texts(v, out))
+      else if (value && typeof value === 'object') {
+        const block = value as Record<string, unknown>
+        for (const [key, inner] of Object.entries(block)) {
+          if (key === 'text' && typeof inner === 'string' && !('key' in block) && inner.trim().length > 2) out.push(inner.trim())
+          else if (key !== 'title' && key !== 'key') texts(inner, out)
+        }
+      }
+      return out
+    }
+    const report: string[] = []
+    for (const listed of (await lk.listTemplates({ limit: 100 })).items) {
+      const template = await lk.getResource(listed.id)
+      const tab = template.documents.find((d) => d.type === 'page')
+      if (!tab) continue
+      const blocks = (await lk.getDocumentContent(template.id, tab.id)).blocks
+      const pageType = findBuiltInPageType(kindFor(template.name))!
+      const page = CanonicalPage.parse({ schemaVersion: 1, name: 'Audit Page', pageType: pageType.id, sections: [{ id: 's1', heading: 'Description', kind: 'lore', paragraphs: ['Audit description.'] }] })
+      const out = renderFromLayout(page, pageType, { sourceProjectId: null, sourceResourceId: template.id, sourceName: template.name, sourceKind: 'template', documentName: tab.name, blocks: blocks as Record<string, unknown>[], droppedParts: [], fetchedAt: '' }, false, { keepEmptyImages: true })
+      const left = [...new Set(texts(out).filter((t) => texts(blocks).includes(t)))]
+      report.push(`${template.name} (${pageType.id}): ${left.length ? left.map((t) => JSON.stringify(t.slice(0, 60))).join(', ') : 'no example text left'}`)
+    }
+    console.info(report.join('\n'))
   })
 })

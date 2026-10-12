@@ -35,12 +35,6 @@ export const TemplateDefinition = z.object({
   notes: z.string().max(4000).default(''),
   /** A layout copied from LegendKeeper. When set, it replaces the app's own page layout. */
   lkLayout: LkLayout.nullable().default(null),
-  /**
-   * When the layout was copied from a LegendKeeper template: create each page as a copy of that
-   * template (its sidebar properties, icon, banner, other tabs and built-in boxes), then fill
-   * its first page tab. Off: a plain new page with the copied layout.
-   */
-  createFromLkTemplate: z.boolean().default(true),
 })
 export type TemplateDefinition = z.infer<typeof TemplateDefinition>
 export type TemplateDefinitionInput = z.input<typeof TemplateDefinition>

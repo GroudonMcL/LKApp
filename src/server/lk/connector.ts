@@ -22,9 +22,10 @@ import type {
  * - All authenticated LegendKeeper calls go through an implementation of this interface,
  *   on the server only. UI code never sees the SDK or the API key.
  * - Deliberately narrow: read operations plus these writes — create one page (plain, or as a
- *   copy of a LegendKeeper template), save one page as a template, replace a resource's tags
- *   and aliases, replace one page's content (always with a version check), and add one event
- *   to an existing timeline. Every create uses an id chosen before the write.
+ *   copy of a LegendKeeper template, then filled block by block), save one page as a template,
+ *   replace a resource's tags and aliases, replace one page's content (always with a version
+ *   check), and add one event to an existing timeline. Every create uses an id chosen before
+ *   the write.
  *   There is no move, delete or merge here, so the rest of the app cannot perform one even
  *   by mistake. Writes are never retried automatically.
  * - Tests use an in-memory implementation; production uses `SdkConnector`.
@@ -66,6 +67,22 @@ export interface LegendKeeperConnector {
    * `version_conflict`, nothing written). Returns the new version.
    */
   replaceDocumentBlocks(resourceId: string, documentId: string, blocks: unknown[], ifMatch: string): Promise<{ version: string }>
+
+  // Block-level edits, used only to fill a page just created as a copy of a template
+  // (core/template-fill.ts). Each takes the document version it expects (If-Match).
+  /** Gives every block of a document an id (template blocks may have none). */
+  assignBlockIds(resourceId: string, documentId: string): Promise<{ version: string }>
+  /** Inserts one block (with an id chosen in advance) after or before another, or as the last child of `parent`. */
+  insertBlock(resourceId: string, documentId: string, input: { block: unknown; after?: string; before?: string; parent?: string }, ifMatch: string): Promise<{ version: string }>
+  /** Changes a block's own fields (not its children). */
+  updateBlock(resourceId: string, documentId: string, blockId: string, patch: Record<string, unknown>, ifMatch: string): Promise<{ version: string }>
+  replaceBlock(resourceId: string, documentId: string, blockId: string, block: unknown, ifMatch: string): Promise<{ version: string }>
+  /** LegendKeeper returns no version for a delete. */
+  deleteBlock(resourceId: string, documentId: string, blockId: string, ifMatch: string): Promise<void>
+  /** Updates one field (property) of an infobox in place. */
+  updateInfoboxProperty(resourceId: string, documentId: string, blockId: string, propertyId: string, patch: Record<string, unknown>, ifMatch: string): Promise<{ version: string }>
+  createInfoboxProperty(resourceId: string, documentId: string, blockId: string, property: unknown, ifMatch: string): Promise<{ version: string }>
+  deleteInfoboxProperty(resourceId: string, documentId: string, blockId: string, propertyId: string, ifMatch: string): Promise<void>
 
   /** The project's custom calendars, then LegendKeeper's built-in ones. */
   listCalendars(): Promise<LkCalendarInfo[]>

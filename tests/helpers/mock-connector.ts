@@ -1,5 +1,6 @@
 import type { LegendKeeperConnector } from '@/server/lk/connector'
 import { ConnectorError } from '@/server/lk/errors'
+import { hasUnwritable } from '@/core/template-fill'
 import type {
   CreateFromTemplateInput,
   SaveAsTemplateInput,
@@ -307,6 +308,7 @@ export class MockConnector implements LegendKeeperConnector {
     const doc = this.resources.get(resourceId)?.documents.find((d) => d.id === documentId)
     if (!doc) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
     if (doc.version !== ifMatch) throw new ConnectorError('version_conflict', 'version mismatch', { status: 412, code: 'VERSION_MISMATCH', outcome: 'not_applied' })
+    if (hasUnwritable(blocks)) throw unsupportedHref()
     const behavior = this.replaceBehavior.get(resourceId)
     if (behavior === 'validation_error') throw new ConnectorError('validation', 'invalid', { status: 400, code: 'INVALID_CONTENT', outcome: 'not_applied', issues: [{ path: 'blocks[0]', message: 'bad block' }] })
     if (behavior === 'server_error_before_apply') throw new ConnectorError('server', 'server error', { status: 500, outcome: 'unknown' })
@@ -315,6 +317,145 @@ export class MockConnector implements LegendKeeperConnector {
     doc.text = JSON.stringify(blocks)
     if (behavior === 'apply_then_connection_error') throw new ConnectorError('connection', 'reply lost', { outcome: 'unknown' })
     return { version: doc.version }
+  }
+
+  // ── Block-level edits (filling a template copy) ─────────────────────────────
+  /** Block-level edits so far, by operation. */
+  blockOps: { method: string; blockId?: string }[] = []
+  /** Fails the n-th block-level edit (1-based), as `behavior`. */
+  failBlockOp: { at: number; behavior: CreateBehavior } | null = null
+
+  private doc(resourceId: string, documentId: string) {
+    const doc = this.resources.get(resourceId)?.documents.find((d) => d.id === documentId)
+    if (!doc) throw new ConnectorError('not_found', 'not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+    return doc
+  }
+
+  private blockWrite<T>(method: string, resourceId: string, documentId: string, ifMatch: string | null, blockId: string | undefined, apply: (blocks: Record<string, unknown>[]) => T): T {
+    this.record(method, { resourceId, documentId, blockId })
+    const doc = this.doc(resourceId, documentId)
+    if (ifMatch !== null && doc.version !== ifMatch) throw new ConnectorError('version_conflict', 'version mismatch', { status: 412, code: 'VERSION_MISMATCH', outcome: 'not_applied' })
+    this.blockOps.push({ method, blockId })
+    const failing = this.failBlockOp && this.failBlockOp.at === this.blockOps.length ? this.failBlockOp.behavior : null
+    if (failing === 'server_error_before_apply') throw new ConnectorError('server', 'server error', { status: 500, outcome: 'unknown' })
+    if (failing === 'validation_error') throw new ConnectorError('validation', 'invalid', { status: 400, code: 'VALIDATION_ERROR', outcome: 'not_applied' })
+    const result = apply(doc.blocks as Record<string, unknown>[])
+    doc.version = `v${Number(doc.version.replace(/\D/g, '') || '1') + 1}`
+    doc.text = JSON.stringify(doc.blocks)
+    if (failing === 'apply_then_connection_error') throw new ConnectorError('connection', 'reply lost', { outcome: 'unknown' })
+    return result
+  }
+
+  /** The list holding a block (at any depth), and its index. */
+  private locate(blocks: Record<string, unknown>[], blockId: string): { list: Record<string, unknown>[]; index: number } | null {
+    const at = blocks.findIndex((b) => b.id === blockId)
+    if (at !== -1) return { list: blocks, index: at }
+    for (const block of blocks) {
+      if (Array.isArray(block.children)) {
+        const found = this.locate(block.children as Record<string, unknown>[], blockId)
+        if (found) return found
+      }
+    }
+    return null
+  }
+
+  private infobox(blocks: Record<string, unknown>[], blockId: string) {
+    const where = this.locate(blocks, blockId)
+    const box = where ? where.list[where.index] : undefined
+    if (!box || !Array.isArray(box.rows)) throw new ConnectorError('not_found', 'block not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+    return box.rows as Record<string, unknown>[]
+  }
+
+  async assignBlockIds(resourceId: string, documentId: string): Promise<{ version: string }> {
+    let n = 0
+    this.blockWrite('assignBlockIds', resourceId, documentId, null, undefined, (blocks) => {
+      const visit = (list: Record<string, unknown>[]) => {
+        for (const block of list) {
+          if (!block.id) block.id = `blk${n++}x${this.blockOps.length}`
+          if (block.kind === 'infobox') for (const row of (block.rows as Record<string, unknown>[]) ?? []) if (!row.id) row.id = `row${n++}x${this.blockOps.length}`
+          if (Array.isArray(block.children)) visit((block.children as Record<string, unknown>[]).filter((c) => typeof c.kind === 'string'))
+        }
+      }
+      visit(blocks)
+    })
+    return { version: this.doc(resourceId, documentId).version }
+  }
+
+  async insertBlock(resourceId: string, documentId: string, input: { block: unknown; after?: string; before?: string; parent?: string }, ifMatch: string): Promise<{ version: string }> {
+    const block = structuredClone(input.block) as Record<string, unknown>
+    this.blockWrite('insertBlock', resourceId, documentId, ifMatch, block.id as string, (blocks) => {
+      if (hasUnwritable(block)) throw unsupportedHref()
+      if (block.id && this.locate(blocks, block.id as string)) throw new ConnectorError('duplicate_id', 'duplicate block id', { status: 409, code: 'DUPLICATE_ID', outcome: 'not_applied' })
+      const notFound = () => new ConnectorError('not_found', 'anchor not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+      if (input.parent) {
+        const where = this.locate(blocks, input.parent)
+        if (!where) throw notFound()
+        const container = where.list[where.index]!
+        container.children = [...((container.children as unknown[]) ?? []), block]
+        return
+      }
+      const anchor = input.after ?? input.before
+      if (!anchor) return void blocks.push(block)
+      const where = this.locate(blocks, anchor)
+      if (!where) throw notFound()
+      where.list.splice(input.after ? where.index + 1 : where.index, 0, block)
+    })
+    return { version: this.doc(resourceId, documentId).version }
+  }
+
+  async replaceBlock(resourceId: string, documentId: string, blockId: string, block: unknown, ifMatch: string): Promise<{ version: string }> {
+    this.blockWrite('replaceBlock', resourceId, documentId, ifMatch, blockId, (blocks) => {
+      if (hasUnwritable(block)) throw unsupportedHref()
+      const where = this.locate(blocks, blockId)
+      if (!where) throw new ConnectorError('not_found', 'block not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+      where.list[where.index] = { ...(structuredClone(block) as Record<string, unknown>), id: blockId }
+    })
+    return { version: this.doc(resourceId, documentId).version }
+  }
+
+  async updateBlock(resourceId: string, documentId: string, blockId: string, patch: Record<string, unknown>, ifMatch: string): Promise<{ version: string }> {
+    this.blockWrite('updateBlock', resourceId, documentId, ifMatch, blockId, (blocks) => {
+      const where = this.locate(blocks, blockId)
+      if (!where) throw new ConnectorError('not_found', 'block not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+      Object.assign(where.list[where.index]!, structuredClone(patch))
+    })
+    return { version: this.doc(resourceId, documentId).version }
+  }
+
+  async deleteBlock(resourceId: string, documentId: string, blockId: string, ifMatch: string): Promise<void> {
+    this.blockWrite('deleteBlock', resourceId, documentId, ifMatch, blockId, (blocks) => {
+      const where = this.locate(blocks, blockId)
+      if (!where) throw new ConnectorError('not_found', 'block not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+      where.list.splice(where.index, 1)
+    })
+  }
+
+  async updateInfoboxProperty(resourceId: string, documentId: string, blockId: string, propertyId: string, patch: Record<string, unknown>, ifMatch: string): Promise<{ version: string }> {
+    this.blockWrite('updateInfoboxProperty', resourceId, documentId, ifMatch, propertyId, (blocks) => {
+      const row = this.infobox(blocks, blockId).find((r) => r.id === propertyId)
+      if (!row) throw new ConnectorError('not_found', 'property not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+      Object.assign(row, structuredClone(patch))
+    })
+    return { version: this.doc(resourceId, documentId).version }
+  }
+
+  async createInfoboxProperty(resourceId: string, documentId: string, blockId: string, property: unknown, ifMatch: string): Promise<{ version: string }> {
+    this.blockWrite('createInfoboxProperty', resourceId, documentId, ifMatch, blockId, (blocks) => {
+      const rows = this.infobox(blocks, blockId)
+      const prop = structuredClone(property) as Record<string, unknown>
+      if (prop.id && rows.some((r) => r.id === prop.id)) throw new ConnectorError('duplicate_id', 'duplicate id', { status: 409, code: 'DUPLICATE_ID', outcome: 'not_applied' })
+      rows.push(prop)
+    })
+    return { version: this.doc(resourceId, documentId).version }
+  }
+
+  async deleteInfoboxProperty(resourceId: string, documentId: string, blockId: string, propertyId: string, ifMatch: string): Promise<void> {
+    this.blockWrite('deleteInfoboxProperty', resourceId, documentId, ifMatch, propertyId, (blocks) => {
+      const rows = this.infobox(blocks, blockId)
+      const at = rows.findIndex((r) => r.id === propertyId)
+      if (at === -1) throw new ConnectorError('not_found', 'property not found', { status: 404, code: 'NOT_FOUND', outcome: 'not_applied' })
+      rows.splice(at, 1)
+    })
   }
 
   // ── Timelines ───────────────────────────────────────────────────────────────
@@ -402,4 +543,9 @@ export class MockConnector implements LegendKeeperConnector {
     if (this.eventCreateBehavior === 'apply_then_connection_error') throw new ConnectorError('connection', 'reply lost', { outcome: 'unknown' })
     return event
   }
+}
+
+/** LegendKeeper's answer to an image without a picture. */
+function unsupportedHref() {
+  return new ConnectorError('validation', 'unsupported href', { status: 400, code: 'VALIDATION_ERROR', outcome: 'not_applied', issues: [{ path: 'url', message: 'unsupported href' }] })
 }

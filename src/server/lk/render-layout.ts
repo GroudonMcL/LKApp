@@ -9,18 +9,31 @@ import { boldEntryName, inlineRuns, mentionTargets, paragraphBlocks, sourcesBloc
  *
  * The same rules as the app's own renderer apply: only confirmed values (`source` or `user`)
  * are written, only resolved references become links, and mechanics stay apart from lore.
- * Template text is never copied into the page: rows without a value are left out, text blocks
- * without a matching section are left out, and placeholder paragraphs are replaced.
+ *
+ * Infobox fields keep the template's order exactly, and a field without a value stays, blank
+ * (the template's example value is removed). Fields the template has no row for are added after
+ * the template's own rows, at the end of its last group. Template text is never copied into the
+ * page: text blocks without a matching section are left out, and placeholder paragraphs are
+ * replaced. Block and row ids in the layout are kept, so the result can be written back into a
+ * copy of the template block by block (see core/template-fill.ts).
  *
  * Pure: no network, no database.
  */
+
+export interface LayoutRenderOptions {
+  /**
+   * Keep empty image slots. LegendKeeper refuses to *create* one, so only a page that already
+   * has the slot (a copy of the template, filled block by block) can keep it.
+   */
+  keepEmptyImages?: boolean
+}
 
 type AnyBlock = Record<string, unknown>
 type Row = { key: string; fieldKeys: string[] }
 
 const norm = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '')
 
-export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefinition, layout: LkLayout, includeSources: boolean): Block[] {
+export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefinition, layout: LkLayout, includeSources: boolean, options: LayoutRenderOptions = {}): Block[] {
   const targets = mentionTargets(page)
   const values = new Map(writableFields(page).map((field) => [field.key, field.value!.trim()]))
   const template = structuredClone(layout.blocks) as AnyBlock[]
@@ -73,17 +86,15 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   for (const row of allRows) if (row.fieldKeys.length > 1) row.fieldKeys = row.fieldKeys.filter((key) => !dedicated.has(key))
   const covered = new Set([...allRows.flatMap((row) => row.fieldKeys), ...slotFields])
 
-  // Fields with no row of their own: those that come before the first covered field (e.g. size,
-  // type and alignment) open the first group; the rest close the last group.
+  // Fields with a value but no row of their own go after the template's rows, at the end of its
+  // last group, so the template's own order is never changed.
   const order = pageType.fields.map((field) => field.key)
-  const firstCovered = Math.min(...order.map((key, i) => (covered.has(key) ? i : Infinity)))
   const extra = order.filter((key) => values.has(key) && !covered.has(key))
-  const extraBefore = extra.filter((key) => order.indexOf(key) < firstCovered)
-  const extraAfter = extra.filter((key) => order.indexOf(key) >= firstCovered)
   const groups = keyValues.some((kv) => kv.inInfobox) ? keyValues.filter((kv) => kv.inInfobox) : keyValues
   const firstGroup = groups[0]?.block
   const lastGroup = groups[groups.length - 1]?.block
 
+  const sourceLine = page.sources.map((source) => `${source.title}${source.citation ? ` (${source.citation})` : ''}`).join('; ')
   const labelOf = (key: string) => pageType.fields.find((field) => field.key === key)?.label ?? key
   const valueRuns = (text: string): Run[] => {
     const runs: Run[] = []
@@ -130,15 +141,18 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   const fill = (block: AnyBlock, depth: number): AnyBlock | null => {
     switch (block.kind) {
       case 'keyValue': {
-        const rows = (rowsOf.get(block) ?? []).map((row) => {
-          const text = row.fieldKeys.filter((key) => values.has(key)).map((key) => values.get(key)!).join('; ')
-          return { key: row.key, content: text ? valueRuns(text) : [] }
+        // Every template row, in the template's order: its value, or blank. The row keeps its id
+        // and position; its example value (and the read-only `text`) is not copied.
+        const originals = block.rows as AnyBlock[]
+        const rows: AnyBlock[] = (rowsOf.get(block) ?? []).map((row, i) => {
+          const { text: _exampleText, content: _exampleContent, ...kept } = originals[i] ?? {}
+          let text = row.fieldKeys.filter((key) => values.has(key)).map((key) => values.get(key)!).join('; ')
+          // A "Source" row that matches no field gets where the page's content came from.
+          if (!text && row.fieldKeys.length === 0 && /^sources?$/.test(norm(row.key))) text = sourceLine
+          return { ...kept, key: row.key, content: text ? valueRuns(text) : [] }
         })
-        if (block === firstGroup) rows.unshift(...extraRows(extraBefore))
-        if (block === lastGroup) rows.push(...extraRows(extraAfter))
-        // Rows with nothing to show are left out, and a group with no rows at all goes too.
-        const filled = rows.filter((row) => row.content.length > 0)
-        return filled.length ? { ...block, rows: filled } : null
+        if (block === lastGroup) rows.push(...extraRows(extra))
+        return { ...block, rows }
       }
       case 'heading': {
         const text = headingText(block)
@@ -175,32 +189,33 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
           const section = sectionFor(block.title)
           return section ? { ...block, children: sectionChildren(section) } : null
         }
+        // A field slot without a value stays, blank (its example text removed).
+        const blank = { ...block, children: [{ kind: 'paragraph', content: [] }] }
         const slot = slots.get(block)
         if (slot?.kind === 'field') {
           const value = values.get(slot.key)
-          return value ? { ...block, children: paragraphBlocks(value, targets, new Set()) } : null
+          return value ? { ...block, children: paragraphBlocks(value, targets, new Set()) } : blank
         }
         if (slot?.kind === 'description') {
           const lore = sections.filter((section) => section.kind !== 'mechanics' && !placed.has(section))
           const chosen = lore.find((section) => norm(section.heading) === 'description') ?? lore[0]
-          if (!chosen) return null
+          if (!chosen) return blank
           placed.add(chosen)
           return { ...block, children: sectionChildren(chosen) }
         }
         // A text block inside the infobox, or one without a title: keep its structure (the
-        // name heading, images, nested key-values) and drop its example text.
+        // name heading, images, nested key-values) and drop its example text. Inside the
+        // infobox it stays even when nothing is left, so the template's fields are all there.
         const children = fillChildren(block.children, depth)
-        return children.length ? { ...block, children } : null
+        return children.length ? { ...block, children } : depth > 0 ? blank : null
       }
       case 'infobox': {
-        const rows = fillChildren(block.rows, depth)
-        // An infobox left with nothing but headings (its table or fields were empty) goes too.
-        const onlyHeadings = rows.every((row) => row.kind === 'textField' && (row.children as AnyBlock[] | undefined)?.every((child) => child.kind === 'heading'))
-        return rows.length && !onlyHeadings ? { ...block, rows } : null
+        // The infobox is always kept, with every one of its fields (blank where there is no value).
+        return { ...block, rows: fillChildren(block.rows, depth) }
       }
       case 'image':
-        // Layouts copied before empty image slots were dropped may still hold one.
-        return isEmptyImage(block) ? null : block
+        // An empty image slot can only stay on a page that already has it (a template copy).
+        return isEmptyImage(block) && !options.keepEmptyImages ? null : block
       default: {
         if (depth > 0 && isPlaceholderBlock(block)) return null
         if (Array.isArray(block.children)) {
