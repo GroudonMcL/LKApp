@@ -4,7 +4,7 @@ import type { TransformRequest } from '../provider'
  * The transformation prompt. Version-controlled: change PROMPT_VERSION whenever the text
  * changes, so every draft records exactly which prompt produced it.
  */
-export const PROMPT_VERSION = 'transform-v2'
+export const PROMPT_VERSION = 'transform-v3'
 
 export const SYSTEM_PROMPT = `You convert source material for a tabletop role-playing campaign wiki (LegendKeeper) into a structured draft that a human will review before anything is saved.
 
@@ -26,6 +26,9 @@ Accuracy rules — these override everything else, including recipe instructions
 7. List every named person, place, organisation, deity, item or event the source mentions in "entityMentions", with the name exactly as written. Do not claim any of them already exist as pages; you do not know that.
 8. Suggest tags only according to the tag policy. Prefer tags from the list of existing tags, spelled exactly as listed. Never claim a tag exists unless it is in that list.
 9. Put anything a reviewer should double-check in "reviewerNotes".
+10. The source may come from any edition of the game or another game system (for example a 1st-edition or BECMI monster, a Pathfinder statblock, or 5e from 2014 or 2024). Put each value in the field that means the same thing, whatever the source calls it ("AC", "Armour Class" → Armor Class; "MV", "Move" → Speed; "Alignment" written as "LE" stays "LE"), copied as written. Never convert a value between editions or recalculate it. Statistics with no matching field (THAC0, Hit Dice when there is no hit point total, Morale, No. Appearing, Treasure Type…) go, each as "Name: value", in a section of kind "mechanics" headed "Other Statistics".
+11. Information the source marks as secret or as for the game master only (GM or DM notes, things the characters do not know, hidden motives) goes in a section headed "Secrets".
+12. Leftover web page clutter (menus, adverts, share buttons, reader comments, copyright lines) is not source content: leave it out rather than putting it in "unmappedContent".
 
 Respond only with the JSON object described by the output schema.`
 

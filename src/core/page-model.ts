@@ -190,3 +190,12 @@ export function writableFields(page: CanonicalPage, group?: 'lore' | 'mechanics'
 export function resolvedReferences(page: CanonicalPage): PageReference[] {
   return page.references.filter((ref) => ref.status === 'resolved' && ref.resourceId)
 }
+
+/**
+ * Whether a section is for the game master only ("Secrets", "GM Notes", "DM only"…). Such
+ * sections go inside a LegendKeeper secret block, which players never see.
+ */
+export function isSecretHeading(heading: string): boolean {
+  const text = heading.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  return /^(secrets?( and [a-z ]+)?|[a-z ]+ secrets?|(gm|dm|game master|dungeon master|referee)( s)?( notes?| only| information| info| eyes only| secrets?)?|for the (gm|dm|game master|dungeon master)|hidden( information| notes)?|spoilers?)$/.test(text)
+}

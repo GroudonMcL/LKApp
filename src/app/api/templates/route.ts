@@ -6,7 +6,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  return handle((ctx) => ({ templates: listTemplates(ctx).map((template) => ({ ...template, layoutReport: layoutReport(template) })) }))
+  return handle((ctx) => ({ templates: listTemplates(ctx).map((template) => ({ ...template, layoutReport: layoutReport(template, ctx) })) }))
 }
 
 export async function POST(request: Request) {

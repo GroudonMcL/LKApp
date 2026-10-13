@@ -19,7 +19,7 @@ import { toConnectorError } from '../lk/errors'
 import { redactSecrets } from '../redact'
 import { configuredSecrets } from '../config'
 import { recordAudit } from './audit'
-import { BATCH_TIMING, cancelRequested, forEachLimited, noteModel, runningPhase, sleep, startBatchWork } from './batch-engine'
+import { BATCH_TIMING, cancelRequested, forEachLimited, noteModel, runningPhase, setPhase, sleep, startBatchWork } from './batch-engine'
 import { knownProjectId, requireProjectId } from './connection'
 import { getDraft } from './drafts'
 import { ServiceError } from './errors'
@@ -53,6 +53,10 @@ export const BatchOptions = z.object({
   attributionTitle: z.string().max(500).nullable().default(null),
   citation: z.string().max(1000).nullable().default(null),
   lastDryRun: z.unknown().optional(),
+  /** Where new pages go (a LegendKeeper page id), instead of each recipe's default parent. */
+  parentId: z.string().max(256).nullable().default(null),
+  /** A sorted import: no single recipe; each record has its own page kind (see smart-import.ts). */
+  smart: z.record(z.string(), z.unknown()).nullable().default(null),
 })
 export type BatchOptions = z.infer<typeof BatchOptions>
 
@@ -100,6 +104,23 @@ export function batchRecipe(ctx: AppContext, batch: Batch): { id: string; versio
   const definition = ctx.repos.recipes.getVersion(batch.recipeId, batch.recipeVersion)
   if (!definition) throw new ServiceError(400, 'The recipe version this batch uses no longer exists.')
   return { id: batch.recipeId, version: batch.recipeVersion, definition, latestVersion: ctx.repos.recipes.get(batch.recipeId)?.version ?? null }
+}
+
+/** The recipe one record is drafted with: the batch's, or (in a sorted import) its own. */
+export function itemRecipe(ctx: AppContext, batch: Batch, item: BatchItem): ReturnType<typeof batchRecipe> {
+  if (batch.recipeId) return batchRecipe(ctx, batch)
+  const job = item.jobId ? ctx.repos.jobs.get(item.jobId) : null
+  const recipe = job?.recipeId ? ctx.repos.recipes.get(job.recipeId) : null
+  if (!recipe) throw new ServiceError(400, `“${item.title}” has no page kind yet. Choose one first.`)
+  return { id: recipe.id, version: recipe.version, definition: recipe.definition, latestVersion: recipe.version }
+}
+
+function itemRecipeOrNull(ctx: AppContext, batch: Batch, item: BatchItem) {
+  try {
+    return itemRecipe(ctx, batch, item)
+  } catch {
+    return null
+  }
 }
 
 function rulesFor(ctx: AppContext, batch: Batch): RecordRules {
@@ -161,11 +182,11 @@ export async function addBatchSources(ctx: AppContext, batchId: string, files: B
   requireIdle(batch)
   const existing = ctx.repos.batchSources.list(batchId).length
   if (existing + files.length + pastes.length > MAX_FILES_PER_BATCH) throw new ServiceError(400, `A batch takes at most ${MAX_FILES_PER_BATCH} files.`)
-  await addSources(ctx, batch, batchRecipe(ctx, batch).definition, files, pastes)
+  await addSources(ctx, batch, batch.recipeId ? batchRecipe(ctx, batch).definition : null, files, pastes)
   return batchView(ctx, batchId)
 }
 
-async function addSources(ctx: AppContext, batch: Batch, recipe: RecipeDefinition, files: BatchFileInput[], pastes: BatchPasteInput[]) {
+export async function addSources(ctx: AppContext, batch: Batch, recipe: RecipeDefinition | null, files: BatchFileInput[], pastes: BatchPasteInput[]) {
   const limits = ctx.config().limits
   let seq = ctx.repos.batchSources.list(batch.id).length
   const inputs = [
@@ -190,7 +211,7 @@ async function addSources(ctx: AppContext, batch: Batch, recipe: RecipeDefinitio
         { bytes: input.bytes, fileName: input.fileName, mimeType: input.mimeType, declaredFormat: input.declaredFormat },
         { maxBytes: limits.maxUploadBytes, maxChars: limits.maxSourceChars, maxDocumentBytes: limits.maxDocumentBytes },
       )
-      const accepted = recipe.acceptedFormats
+      const accepted = recipe?.acceptedFormats ?? []
       if (accepted.length > 0 && !accepted.includes(extracted.originalFormat)) {
         throw new ExtractionError(`The recipe accepts only ${accepted.join(', ')} files; this is ${extracted.originalFormat}.`, 'UNSUPPORTED_TYPE')
       }
@@ -312,6 +333,7 @@ export function extractBatchRecords(ctx: AppContext, batchId: string, input: { r
   if (items.some((item) => ['approved', 'running', 'succeeded', 'needs_reconciliation'].includes(item.status))) {
     throw new ServiceError(409, 'Records cannot be extracted again after some were approved or written. Start a new batch for the rest of the content.')
   }
+  if (!batch.recipeId) throw new ServiceError(409, 'This import is sorted by page kind; sort it again instead.')
   const recipe = batchRecipe(ctx, batch)
   let rules = rulesFor(ctx, batch)
   if (input.rules !== undefined) {
@@ -491,38 +513,45 @@ export async function generateDrafts(ctx: AppContext, batchId: string, options: 
       items = items.slice(0, limit)
     }
   }
-  const recipe = batchRecipe(ctx, batch)
+  const recipe = batch.recipeId ? batchRecipe(ctx, batch) : null
   recordAudit(ctx, {
     operation: 'batch.draft',
     outcome: 'info',
-    recipeId: recipe.id,
-    recipeVersion: recipe.version,
+    recipeId: recipe?.id ?? null,
+    recipeVersion: recipe?.version ?? null,
     message: `Drafting ${items.length} record(s) (${options.mode})${deferred ? `; ${deferred} left for the next run (AI limit per run)` : ''}`,
     details: { batchId },
   })
 
   await startBatchWork(ctx, batchId, 'drafting', { status: 'processing', wait: options.wait }, async () => {
     await forEachLimited(items, options.mode === 'ai' ? 2 : 4, () => cancelRequested(ctx, batchId), async (item) => {
-      if (!ctx.repos.batchItems.transition(item.id, statuses, 'processing')) return
-      try {
-        const view = await runTransform(ctx, item.jobId!, { mode: options.mode, recipeId: recipe.id, recipeVersion: recipe.version, templateId: batch.templateId })
-        const processing = view.draft.page.processing
-        ctx.repos.batchItems.update(item.id, {
-          status: 'awaiting_review',
-          title: view.draft.page.name || item.title,
-          error: null,
-          result: { stage: 'draft' },
-          attempts: item.attempts + 1,
-          inputTokens: (item.inputTokens ?? 0) + (processing?.inputTokens ?? 0),
-          outputTokens: (item.outputTokens ?? 0) + (processing?.outputTokens ?? 0),
-        })
-      } catch (error) {
-        ctx.repos.batchItems.update(item.id, { status: 'failed', error: errorMessage(error), result: { stage: 'draft' }, attempts: item.attempts + 1 })
-      }
+      await draftItem(ctx, batch, item, options.mode, statuses)
     })
     matchItems(ctx, batchId)
   })
   return { ...batchView(ctx, batchId), deferred }
+}
+
+/** Drafts one record (AI or structural) with its recipe; failures stay on the record. */
+export async function draftItem(ctx: AppContext, batch: Batch, item: BatchItem, mode: TransformMode, from: BatchItemStatus[] = ['pending', 'failed']) {
+  if (!ctx.repos.batchItems.transition(item.id, from, 'processing')) return
+  try {
+    const own = itemRecipe(ctx, batch, item)
+    const parentId = optionsOf(batch).parentId
+    const view = await runTransform(ctx, item.jobId!, { mode, recipeId: own.id, recipeVersion: own.version, templateId: batch.templateId, ...(parentId ? { parentId } : {}) })
+    const processing = view.draft.page.processing
+    ctx.repos.batchItems.update(item.id, {
+      status: 'awaiting_review',
+      title: view.draft.page.name || item.title,
+      error: null,
+      result: { stage: 'draft' },
+      attempts: item.attempts + 1,
+      inputTokens: (item.inputTokens ?? 0) + (processing?.inputTokens ?? 0),
+      outputTokens: (item.outputTokens ?? 0) + (processing?.outputTokens ?? 0),
+    })
+  } catch (error) {
+    ctx.repos.batchItems.update(item.id, { status: 'failed', error: errorMessage(error), result: { stage: 'draft' }, attempts: item.attempts + 1 })
+  }
 }
 
 // ── 5. Matching existing pages ────────────────────────────────────────────────
@@ -533,8 +562,6 @@ export async function generateDrafts(ctx: AppContext, batchId: string, options: 
  */
 export function matchItems(ctx: AppContext, batchId: string) {
   const batch = requireImportBatch(ctx, batchId)
-  const recipe = batchRecipe(ctx, batch)
-  const pageType = resolvePageType(recipe.definition)
   const projectId = knownProjectId(ctx)
   const resources = projectId ? ctx.repos.index.forReferences(projectId) : []
   const matcher = resources.length ? new Matcher(resources) : null
@@ -546,6 +573,9 @@ export function matchItems(ctx: AppContext, batchId: string) {
   const inBatch = duplicatesWithinBatch(live.map(({ item, draft }) => ({ id: item.id, name: draft.page.name })))
 
   for (const { item, draft } of drafted) {
+    const recipe = itemRecipeOrNull(ctx, batch, item)
+    if (!recipe) continue
+    const pageType = resolvePageType(recipe.definition)
     const match: MatchResult = matcher ? matcher.match({ name: draft.page.name, aliases: draft.page.aliases, parentId: draft.page.parentId }, pageType) : NO_INDEX_MATCH
     const others = (inBatch.get(item.id) ?? []).map((id) => ctx.repos.batchItems.get(id)?.title ?? id)
     const flags = item.flags.filter((f) => f !== 'possible_duplicate' && f !== 'duplicate_in_batch' && f !== 'no_index')
@@ -616,7 +646,7 @@ async function keyIsAdmin(ctx: AppContext): Promise<boolean | null> {
   }
 }
 
-async function planEntry(ctx: AppContext, recipe: RecipeDefinition, item: BatchItem, project: { id: string; name: string }, isAdmin: boolean | null, mode: 'dry' | 'approve', acknowledgeWarnings: boolean): Promise<PlanEntry> {
+async function planEntry(ctx: AppContext, batch: Batch, item: BatchItem, project: { id: string; name: string }, isAdmin: boolean | null, mode: 'dry' | 'approve', acknowledgeWarnings: boolean): Promise<PlanEntry> {
   const entry: PlanEntry = {
     itemId: item.id,
     seq: item.seq,
@@ -642,7 +672,10 @@ async function planEntry(ctx: AppContext, recipe: RecipeDefinition, item: BatchI
   }
   entry.name = draft.page.name
   entry.parentId = draft.page.parentId
-  const blocker = matchBlocker(recipe, item)
+  const recipe = itemRecipeOrNull(ctx, batch, item)?.definition
+  if (!recipe) entry.problems.push('No page kind is chosen for this record.')
+  else if (!recipe.allowCreate) entry.problems.push(`The recipe “${recipe.name}” does not allow creating pages.`)
+  const blocker = recipe ? matchBlocker(recipe, item) : null
   if (blocker) entry.problems.push(blocker)
   if (!draft.page.parentId && isAdmin === false) entry.problems.push('No parent page is set, and creating a page at the top level needs an ADMIN key. Set a parent (or a default parent in the recipe).')
   try {
@@ -686,33 +719,39 @@ export async function dryRunBatch(ctx: AppContext, batchId: string, input: { ite
   const batch = requireImportBatch(ctx, batchId)
   requireOpen(batch)
   requireIdle(batch)
-  const recipe = batchRecipe(ctx, batch)
   const items = ctx.repos.batchItems.list(batchId, { status: ['awaiting_review', 'approved'] }).filter((i) => !input.itemIds || input.itemIds.includes(i.id))
   if (items.length === 0) throw new ServiceError(409, 'There are no reviewed records to check.')
   await startBatchWork(ctx, batchId, 'dry run', { status: 'processing', wait: input.wait }, async () => {
-    const project = await liveProject(ctx)
-    const isAdmin = await keyIsAdmin(ctx)
-    const entries: PlanEntry[] = []
-    for (const item of items) {
-      if (cancelRequested(ctx, batchId)) break
-      entries.push(await planEntry(ctx, recipe.definition, item, project, isAdmin, 'dry', true))
-      await sleep(BATCH_TIMING.checkSpacingMs)
-    }
-    const report = {
-      kind: 'dry_run',
-      batchId,
-      batchName: batch.name,
-      at: ctx.now().toISOString(),
-      recipe: { id: recipe.id, name: recipe.definition.name, version: recipe.version },
-      project: { id: project.id, name: project.name },
-      keyRole: isAdmin === null ? 'unknown' : isAdmin ? 'ADMIN' : 'MEMBER',
-      totals: { items: entries.length, ready: entries.filter((e) => e.canProceed).length, blocked: entries.filter((e) => !e.canProceed).length, withWarnings: entries.filter((e) => e.warnings.length).length },
-      entries,
-    }
-    ctx.repos.batches.update(batchId, { options: { ...optionsOf(getBatch(ctx, batchId)), lastDryRun: report } })
-    recordAudit(ctx, { operation: 'batch.dry_run', outcome: 'success', projectId: project.id, recipeId: recipe.id, recipeVersion: recipe.version, message: `${report.totals.ready} ready, ${report.totals.blocked} blocked`, details: { batchId } })
+    await dryRunItems(ctx, batch, items)
   })
   return batchView(ctx, batchId)
+}
+
+/** The dry-run report for some records (the work of a dry run; see dryRunBatch). */
+export async function dryRunItems(ctx: AppContext, batch: Batch, items: BatchItem[]) {
+  const batchId = batch.id
+  const recipe = batch.recipeId ? batchRecipe(ctx, batch) : null
+  const project = await liveProject(ctx)
+  const isAdmin = await keyIsAdmin(ctx)
+  const entries: PlanEntry[] = []
+  for (const item of items) {
+    if (cancelRequested(ctx, batchId)) break
+    entries.push(await planEntry(ctx, batch, item, project, isAdmin, 'dry', true))
+    await sleep(BATCH_TIMING.checkSpacingMs)
+  }
+  const report = {
+    kind: 'dry_run',
+    batchId,
+    batchName: batch.name,
+    at: ctx.now().toISOString(),
+    recipe: recipe ? { id: recipe.id, name: recipe.definition.name, version: recipe.version } : null,
+    project: { id: project.id, name: project.name },
+    keyRole: isAdmin === null ? 'unknown' : isAdmin ? 'ADMIN' : 'MEMBER',
+    totals: { items: entries.length, ready: entries.filter((e) => e.canProceed).length, blocked: entries.filter((e) => !e.canProceed).length, withWarnings: entries.filter((e) => e.warnings.length).length },
+    entries,
+  }
+  ctx.repos.batches.update(batchId, { options: { ...optionsOf(getBatch(ctx, batchId)), lastDryRun: report } })
+  recordAudit(ctx, { operation: 'batch.dry_run', outcome: 'success', projectId: project.id, recipeId: recipe?.id ?? null, recipeVersion: recipe?.version ?? null, message: `${report.totals.ready} ready, ${report.totals.blocked} blocked`, details: { batchId } })
 }
 
 /** Approves the selected records: each is checked like a final preview and bound to its exact content. */
@@ -720,8 +759,8 @@ export async function approveItems(ctx: AppContext, batchId: string, input: { it
   const batch = requireImportBatch(ctx, batchId)
   requireOpen(batch)
   requireIdle(batch)
-  const recipe = batchRecipe(ctx, batch)
-  if (!recipe.definition.allowCreate) throw new ServiceError(409, `The recipe “${recipe.definition.name}” (version ${recipe.version}) does not allow creating pages.`)
+  const recipe = batch.recipeId ? batchRecipe(ctx, batch) : null
+  if (recipe && !recipe.definition.allowCreate) throw new ServiceError(409, `The recipe “${recipe.definition.name}” (version ${recipe.version}) does not allow creating pages.`)
   const items = ctx.repos.batchItems.list(batchId, { status: ['awaiting_review'] }).filter((i) => input.itemIds.includes(i.id))
   if (items.length === 0) throw new ServiceError(409, 'Select records that are ready for review.')
   await startBatchWork(ctx, batchId, 'approving', { status: 'processing', wait: input.wait }, async () => {
@@ -730,11 +769,11 @@ export async function approveItems(ctx: AppContext, batchId: string, input: { it
     let approved = 0
     for (const item of items) {
       if (cancelRequested(ctx, batchId)) break
-      const entry = await planEntry(ctx, recipe.definition, item, project, isAdmin, 'approve', input.acknowledgeWarnings)
+      const entry = await planEntry(ctx, batch, item, project, isAdmin, 'approve', input.acknowledgeWarnings)
       if (entry.canProceed) approved++
       await sleep(BATCH_TIMING.checkSpacingMs)
     }
-    recordAudit(ctx, { operation: 'batch.approve', outcome: 'success', approval: 'approved', projectId: project.id, recipeId: recipe.id, recipeVersion: recipe.version, message: `${approved} of ${items.length} record(s) approved`, details: { batchId } })
+    recordAudit(ctx, { operation: 'batch.approve', outcome: 'success', approval: 'approved', projectId: project.id, recipeId: recipe?.id ?? null, recipeVersion: recipe?.version ?? null, message: `${approved} of ${items.length} record(s) approved`, details: { batchId } })
   })
   return batchView(ctx, batchId)
 }
@@ -759,7 +798,7 @@ export async function runBatch(ctx: AppContext, batchId: string, input: { wait?:
   requireIdle(batch)
   const pending = ctx.repos.batchItems.list(batchId, { status: ['approved', 'needs_reconciliation'] })
   if (pending.length === 0) throw new ServiceError(409, 'There are no approved records to run.')
-  const recipe = batchRecipe(ctx, batch)
+  const recipe = batch.recipeId ? batchRecipe(ctx, batch) : null
   await startBatchWork(ctx, batchId, 'running', { status: 'running', wait: input.wait }, async () => {
     for (const item of ctx.repos.batchItems.list(batchId, { status: ['needs_reconciliation'] })) await reconcileItem(ctx, item)
     const parents = new Map<string, boolean>()
@@ -778,8 +817,52 @@ export async function runBatch(ctx: AppContext, batchId: string, input: { wait?:
       outcome: counts.failed || counts.uncertain ? 'failure' : 'success',
       approval: 'approved',
       projectId: knownProjectId(ctx),
-      recipeId: recipe.id,
-      recipeVersion: recipe.version,
+      recipeId: recipe?.id ?? null,
+      recipeVersion: recipe?.version ?? null,
+      message: `${counts.succeeded} created, ${counts.failed} failed, ${counts.uncertain} uncertain, ${counts.returned} back to review`,
+      details: { batchId, ...counts },
+    })
+  })
+  return batchView(ctx, batchId)
+}
+
+/**
+ * The one-step finish of a sorted import, after its final preview: approves the chosen records
+ * (each checked like a final preview and bound to its exact content; records with warnings only
+ * when `includeWarnings`), then writes the approved ones, exactly as approving and running do.
+ */
+export async function createChosenPages(ctx: AppContext, batchId: string, input: { itemIds: string[]; includeWarnings: boolean; wait?: boolean }) {
+  const batch = requireImportBatch(ctx, batchId)
+  requireOpen(batch)
+  requireIdle(batch)
+  const items = ctx.repos.batchItems.list(batchId, { status: ['awaiting_review', 'approved'] }).filter((i) => input.itemIds.includes(i.id))
+  if (items.length === 0) throw new ServiceError(409, 'Choose pages that are ready.')
+  await startBatchWork(ctx, batchId, 'checking', { status: 'running', wait: input.wait }, async () => {
+    const project = await liveProject(ctx)
+    const isAdmin = await keyIsAdmin(ctx)
+    const ids: string[] = []
+    for (const [index, item] of items.entries()) {
+      if (cancelRequested(ctx, batchId)) return
+      setPhase(batchId, `checking ${index + 1} of ${items.length}`)
+      if (item.status === 'approved') ids.push(item.id)
+      else if ((await planEntry(ctx, batch, item, project, isAdmin, 'approve', input.includeWarnings)).canProceed) ids.push(item.id)
+      await sleep(BATCH_TIMING.checkSpacingMs)
+    }
+    recordAudit(ctx, { operation: 'batch.approve', outcome: 'success', approval: 'approved', projectId: project.id, message: `${ids.length} of ${items.length} page(s) approved`, details: { batchId } })
+    const counts = { succeeded: 0, failed: 0, uncertain: 0, returned: 0 }
+    const approved = ctx.repos.batchItems.list(batchId, { status: ['approved'] }).filter((i) => ids.includes(i.id))
+    const parents = new Map<string, boolean>()
+    for (const [index, item] of approved.entries()) {
+      if (cancelRequested(ctx, batchId)) break
+      setPhase(batchId, `creating ${index + 1} of ${approved.length}`)
+      counts[await runItem(ctx, item, parents)]++
+      if (index < approved.length - 1) await sleep(BATCH_TIMING.writeSpacingMs)
+    }
+    recordAudit(ctx, {
+      operation: 'batch.run',
+      outcome: counts.failed || counts.uncertain ? 'failure' : 'success',
+      approval: 'approved',
+      projectId: project.id,
       message: `${counts.succeeded} created, ${counts.failed} failed, ${counts.uncertain} uncertain, ${counts.returned} back to review`,
       details: { batchId, ...counts },
     })
@@ -997,7 +1080,11 @@ export function batchView(ctx: AppContext, batchId: string) {
             mode: draft.page.processing?.mode ?? null,
           }
         : null,
-      matchBlocker: recipe ? matchBlocker(recipe.definition, item) : null,
+      matchBlocker: (() => {
+        const own = recipe ?? itemRecipeOrNull(ctx, batch, item)
+        return own ? matchBlocker(own.definition, item) : null
+      })(),
+      destination: !batch.recipeId && job?.recipeId ? { recipeId: job.recipeId, name: ctx.repos.recipes.get(job.recipeId)?.definition.name ?? null } : null,
     }
   })
 

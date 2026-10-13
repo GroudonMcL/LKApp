@@ -37,6 +37,8 @@ export interface TransformOptions {
   useCache?: boolean
   /** `migration`: the source is an existing LegendKeeper page being moved to a new layout. */
   purpose?: 'import' | 'migration'
+  /** Where the new page goes, instead of the recipe's default parent. */
+  parentId?: string | null
 }
 
 /** Added to the recipe's AI instructions when an existing page is migrated to a new layout. */
@@ -181,6 +183,7 @@ export async function runTransform(ctx: AppContext, jobId: string, options: Tran
 
   // Stage B: defaults, tags, links, validation.
   const page = applyDefaultValues(result.page, recipe.definition)
+  if (options.parentId !== undefined) page.parentId = options.parentId
   page.tags = suggestTags(result.tagCandidates, tagInfo.tags, recipe.definition.tagPolicy)
   if (tagInfo.source === 'none') {
     page.reviewerNotes.push('No existing tags were available (no ADMIN key and no project scan yet), so every suggested tag is treated as new.')

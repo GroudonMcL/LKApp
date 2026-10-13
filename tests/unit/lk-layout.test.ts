@@ -213,11 +213,44 @@ describe('layouts copied from LegendKeeper', () => {
         { kind: 'paragraph', content: [] },
       ],
     }
-    const page = CanonicalPage.parse({ schemaVersion: 1, name: 'Elvera', pageType: 'npc', sections: [{ id: 'a', heading: 'Description', kind: 'lore', paragraphs: ['Runs the inn.'] }, { id: 'b', heading: 'Secrets', kind: 'lore', paragraphs: ['Hides a map.'] }] })
+    const page = CanonicalPage.parse({ schemaVersion: 1, name: 'Elvera', pageType: 'npc', sections: [{ id: 'a', heading: 'Description', kind: 'lore', paragraphs: ['Runs the inn.'] }, { id: 'b', heading: 'Rumours', kind: 'lore', paragraphs: ['Hides a map.'] }] })
     const blocks = renderFromLayout(page, npcType, character, false, { rules: LAYOUT_PRESETS.exact })
     expect(blocks.map((block) => block.kind)).toEqual(['textField', 'textField', 'paragraph'])
     expect(plainText([blocks[0]!])).toBe('Runs the inn.')
     expect(plainText([blocks[1]!])).toContain('Hides a map.')
+  })
+
+  it('puts game-master sections inside the template\'s secret block, never in visible boxes', () => {
+    const npcType = findBuiltInPageType('npc')!
+    const character: LkLayout = {
+      ...layout(),
+      blocks: [
+        { kind: 'textField', title: 'DESCRIPTION', isTitleHidden: false, children: [{ kind: 'paragraph', content: [{ text: 'Example' }] }] },
+        { kind: 'textField', title: 'Notes', isTitleHidden: false, children: [{ kind: 'paragraph', content: [] }] },
+        { kind: 'secret', children: [{ kind: 'paragraph', content: [] }] },
+        { kind: 'paragraph', content: [] },
+      ],
+    }
+    const page = CanonicalPage.parse({ schemaVersion: 1, name: 'Elvera', pageType: 'npc', sections: [{ id: 'b', heading: 'Secrets', kind: 'lore', paragraphs: ['Hides a map.'] }, { id: 'a', heading: 'Description', kind: 'lore', paragraphs: ['Runs the inn.'] }, { id: 'c', heading: 'GM Notes', kind: 'notes', paragraphs: ['Owes the thieves.'] }] })
+    for (const rules of [LAYOUT_PRESETS.exact, LAYOUT_PRESETS.fit]) {
+      const blocks = renderFromLayout(page, npcType, character, false, { rules })
+      const secret = blocks.find((block) => block.kind === 'secret')!
+      expect(plainText([secret])).toContain('Hides a map.')
+      expect(plainText([secret])).toContain('Owes the thieves.')
+      expect(plainText(blocks.filter((block) => block.kind !== 'secret'))).not.toMatch(/Hides a map|Owes the thieves/)
+      expect(plainText([blocks[0]!])).toBe('Runs the inn.')
+    }
+    // Nothing secret: the secret block stays blank (exact) or goes (fitted).
+    const plain = CanonicalPage.parse({ schemaVersion: 1, name: 'Elvera', pageType: 'npc', sections: [{ id: 'a', heading: 'Description', kind: 'lore', paragraphs: ['Runs the inn.'] }] })
+    expect(renderFromLayout(plain, npcType, character, false, { rules: LAYOUT_PRESETS.exact }).find((block) => block.kind === 'secret')).toEqual({ kind: 'secret', children: [{ kind: 'paragraph', content: [] }] })
+    expect(renderFromLayout(plain, npcType, character, false, { rules: LAYOUT_PRESETS.fit }).some((block) => block.kind === 'secret')).toBe(false)
+    // No secret block in the template: a new one (fitted), or reported (exact), never the Notes box.
+    const noSecret = { ...character, blocks: character.blocks.filter((block) => block.kind !== 'secret') }
+    expect(renderFromLayout(page, npcType, noSecret, false, { rules: LAYOUT_PRESETS.fit }).some((block) => block.kind === 'secret')).toBe(true)
+    const report = { leftOut: [] as string[] }
+    const exact = renderFromLayout(page, npcType, noSecret, false, { rules: LAYOUT_PRESETS.exact, report })
+    expect(plainText(exact)).not.toContain('Hides a map.')
+    expect(report.leftOut.join(' ')).toContain('Secrets')
   })
 
   it('keeps empty spacer paragraphs as they are', () => {

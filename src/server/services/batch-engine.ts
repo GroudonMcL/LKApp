@@ -35,6 +35,12 @@ export function runningPhase(batchId: string): string | null {
   return runners().get(batchId)?.phase ?? null
 }
 
+/** Changes the label of the work in progress (shown while it runs, e.g. "drafting 3 of 8"). */
+export function setPhase(batchId: string, phase: string) {
+  const running = runners().get(batchId)
+  if (running) running.phase = phase
+}
+
 /** Waits for a batch's background work (used by tests and by callers that want to block). */
 export async function waitForBatch(batchId: string): Promise<void> {
   await runners().get(batchId)?.promise

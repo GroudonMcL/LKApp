@@ -1,5 +1,5 @@
 import { h, infobox, keyValue, links, property, type Block, type PropertyBlock } from '@legendkeeper/sdk/blocks'
-import { acceptedTags, resolvedReferences, writableFields, type CanonicalPage, type PageSection } from '@/core/page-model'
+import { acceptedTags, isSecretHeading, resolvedReferences, writableFields, type CanonicalPage, type PageSection } from '@/core/page-model'
 import type { PageTypeDefinition } from '@/core/page-types'
 import type { TemplateDefinition } from '@/core/template'
 import { renderFromLayout } from './render-layout'
@@ -57,11 +57,14 @@ export function renderPageBlocks(page: CanonicalPage, ctx: RenderContext): Block
     if (section.paragraphs.length === 0) continue
     if (section.kind === 'mechanics') placeStatistics()
     if (section.kind === 'unmapped') placeStatistics()
-    blocks.push(h(2, section.heading))
     const linked = new Set<string>()
-    for (const paragraph of section.paragraphs) {
-      blocks.push(...paragraphBlocks(section.kind === 'mechanics' ? boldEntryName(paragraph) : paragraph, section.kind === 'unmapped' ? new Map() : targets, linked))
-    }
+    const body = [
+      h(2, section.heading),
+      ...section.paragraphs.flatMap((paragraph) => paragraphBlocks(section.kind === 'mechanics' ? boldEntryName(paragraph) : paragraph, section.kind === 'unmapped' ? new Map() : targets, linked)),
+    ]
+    // Game-master sections ("Secrets", "GM Notes") go in a secret block, which players never see.
+    if (isSecretHeading(section.heading)) blocks.push({ kind: 'secret', children: body } as Block)
+    else blocks.push(...body)
   }
   placeStatistics()
 

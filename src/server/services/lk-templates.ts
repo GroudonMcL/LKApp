@@ -2,7 +2,7 @@ import 'server-only'
 import { z } from 'zod'
 import { newAppId } from '@/core/ids'
 import { LK_TEMPLATES_PARENT_ID, skeletonFromBlocks, summarizeLayout, type LkLayout } from '@/core/lk-layout'
-import { findBuiltInPageType } from '@/core/page-types'
+import { findBuiltInPageType, type PageTypeDefinition } from '@/core/page-types'
 import { LayoutRules, TemplateDefinition, type PageTemplate } from '@/core/template'
 import type { AppContext } from '../context'
 import type { Recipe } from '@/core/recipe'
@@ -111,14 +111,33 @@ export async function copyLayoutFromLegendKeeper(ctx: AppContext, input: unknown
   const parsed = CopyLayoutInput.safeParse(input)
   if (!parsed.success) throw new ServiceError(400, 'The request is not valid.', parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`))
   const { pageType: pageTypeId, templateId } = parsed.data
-  const pageType = findBuiltInPageType(pageTypeId)
+  const pageType = pageTypeById(ctx, pageTypeId)
   if (!pageType) throw new ServiceError(400, `“${pageTypeId}” is not a page type.`)
   const existing = templateId ? ctx.repos.templates.get(templateId) : null
   if (templateId && !existing) throw new ServiceError(404, 'Template not found.')
   if (existing?.origin === 'example') throw new ServiceError(400, 'Example templates are read-only.')
+  if (existing && existing.definition.pageType !== pageType.id) {
+    const inUse = ctx.repos.recipes.list().filter((recipe) => recipe.definition.templateId === existing.id)
+    if (inUse.length) throw new ServiceError(409, `The template is used by recipes for “${existing.definition.pageType}” pages: ${inUse.map((r) => r.definition.name).join(', ')}.`)
+  }
+  const { template, resourceName } = await copyLayout(ctx, { resource: parsed.data.resource, pageType, name: parsed.data.name, existing, layoutRules: parsed.data.layoutRules })
+  const recipe = !existing && parsed.data.createRecipe ? recipeFromTemplate(ctx, template.id, { name: resourceName }) : null
+  return { template, report: layoutReport(template, ctx), recipe }
+}
 
+/** A built-in page type, or the page type a recipe defines for itself (e.g. one made from a template). */
+export function pageTypeById(ctx: AppContext, id: string): PageTypeDefinition | null {
+  return findBuiltInPageType(id) ?? ctx.repos.recipes.list().map((recipe) => recipe.definition.customPageType).find((type) => type?.id === id) ?? null
+}
+
+/** Reads a LegendKeeper page or template (read-only) and stores its layout as a local template. */
+export async function copyLayout(
+  ctx: AppContext,
+  input: { resource: string; pageType: PageTypeDefinition; name?: string; existing?: PageTemplate | null; layoutRules?: LayoutRules },
+): Promise<{ template: PageTemplate; resourceName: string }> {
+  const { pageType, existing } = input
   const projectId = await requireProjectId(ctx)
-  const resourceId = resourceIdFrom(parsed.data.resource)
+  const resourceId = resourceIdFrom(input.resource)
   const resource = await ctx.connector().getResource(resourceId)
   const document = resource.documents.find((doc) => doc.type === 'page')
   if (!document) throw new ServiceError(400, `“${resource.name}” has no page document to copy a layout from.`)
@@ -140,22 +159,19 @@ export async function copyLayoutFromLegendKeeper(ctx: AppContext, input: unknown
   // Section order: the layout's text blocks first, then the page type's other sections.
   const sections = [...summary.sections]
   for (const heading of pageType.sections) if (!sections.some((s) => s.toLowerCase() === heading.toLowerCase())) sections.push(heading)
+  if (sections.length === 0) sections.push('Description')
 
   const definition = TemplateDefinition.parse({
     ...(existing?.definition ?? {}),
-    name: parsed.data.name || existing?.definition.name || `${resource.name} (from LegendKeeper)`,
+    name: input.name || existing?.definition.name || `${resource.name} (from LegendKeeper)`,
     pageType: pageType.id,
     description: existing?.definition.description || `Layout copied from the LegendKeeper ${layout.sourceKind} “${resource.name}”.`,
     sections,
     infoboxFields: [...new Set(summary.rows.flatMap((row) => row.fieldKeys))],
     includeSourcesSection: existing?.definition.includeSourcesSection ?? false,
     lkLayout: layout,
-    ...(parsed.data.layoutRules ? { layoutRules: parsed.data.layoutRules } : {}),
+    ...(input.layoutRules ? { layoutRules: input.layoutRules } : {}),
   })
-  if (existing && existing.definition.pageType !== definition.pageType) {
-    const inUse = ctx.repos.recipes.list().filter((recipe) => recipe.definition.templateId === existing.id)
-    if (inUse.length) throw new ServiceError(409, `The template is used by recipes for “${existing.definition.pageType}” pages: ${inUse.map((r) => r.definition.name).join(', ')}.`)
-  }
 
   const id = existing?.id ?? newAppId('tpl')
   if (existing) ctx.repos.templates.update(id, definition)
@@ -166,15 +182,13 @@ export async function copyLayoutFromLegendKeeper(ctx: AppContext, input: unknown
     message: `${definition.name} ← ${resource.name}`,
     details: { templateId: id, sourceResourceId: resource.id, sourceKind: layout.sourceKind, droppedParts },
   })
-  const template = ctx.repos.templates.get(id)!
-  const recipe = !existing && parsed.data.createRecipe ? recipeFromTemplate(ctx, id, { name: resource.name }) : null
-  return { template, report: layoutReport(template), recipe }
+  return { template: ctx.repos.templates.get(id)!, resourceName: resource.name }
 }
 
 /** What the app will do with each part of a copied layout, in words for the template screen. */
-export function layoutReport(template: PageTemplate) {
+export function layoutReport(template: PageTemplate, ctx?: AppContext) {
   const layout = template.definition.lkLayout
-  const pageType = findBuiltInPageType(template.definition.pageType)
+  const pageType = ctx ? pageTypeById(ctx, template.definition.pageType) : findBuiltInPageType(template.definition.pageType)
   if (!layout || !pageType) return null
   const summary = summarizeLayout(layout.blocks, pageType)
   const covered = new Set(summary.rows.flatMap((row) => row.fieldKeys))

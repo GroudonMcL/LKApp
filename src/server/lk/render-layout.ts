@@ -1,6 +1,6 @@
 import { br, h, links, property, walk, type Block, type Run } from '@legendkeeper/sdk/blocks'
 import { isEmptyImage, isPlaceholderBlock, matchLayoutKey, type LkLayout } from '@/core/lk-layout'
-import { resolvedReferences, writableFields, type CanonicalPage, type PageSection } from '@/core/page-model'
+import { isSecretHeading, resolvedReferences, writableFields, type CanonicalPage, type PageSection } from '@/core/page-model'
 import type { PageTypeDefinition } from '@/core/page-types'
 import type { LayoutRules } from '@/core/template'
 import { boldEntryName, inlineRuns, mentionTargets, paragraphBlocks, sourcesBlocks } from './render-text'
@@ -161,6 +161,11 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
       return { ...section, paragraphs: section.paragraphs.filter((_, i) => i !== at) }
     }).filter((section) => section.paragraphs.some((paragraph) => paragraph.trim() !== ''))
   }
+  // Sections for the game master only go inside the template's secret block (players never see
+  // it), so nothing else (the description slot, the Notes box) may take them first.
+  const hasSecretBlock = template.some((block) => block.kind === 'secret')
+  const secretSections = sections.filter((section) => isSecretHeading(section.heading))
+  sections = sections.filter((section) => !secretSections.includes(section))
   const placed = new Set<PageSection>()
   // All sections with the block's title, merged (a source can repeat a heading).
   const sectionFor = (title: string): PageSection | undefined => {
@@ -282,6 +287,7 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
     Array.isArray(items) ? (items as AnyBlock[]).map((child) => fill(child, depth + 1)).filter((child): child is AnyBlock => child !== null) : []
 
   const loreBlocksExtra: AnyBlock[] = []
+  const boldHeading = (text: string): AnyBlock => ({ kind: 'paragraph', content: [{ text, bold: true }] })
   // Walk the top level. The first run of free paragraphs marks where the description goes;
   // the last text block marks where extra mechanics sections go.
   const out: AnyBlock[] = []
@@ -292,6 +298,17 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
     if (block.kind === 'quote' && pulledQuote !== null) {
       out.push(...(paragraphBlocks(pulledQuote, targets, new Set()) as unknown as AnyBlock[]))
       pulledQuote = null
+      topIndex++
+      continue
+    }
+    if (block.kind === 'secret') {
+      const children: AnyBlock[] = secretSections.flatMap((section) => [
+        ...(secretSections.length > 1 || !/^secrets?$/i.test(section.heading.trim()) ? [boldHeading(section.heading)] : []),
+        ...(sectionChildren(section) as unknown as AnyBlock[]),
+      ])
+      secretSections.length = 0
+      if (children.length) out.push({ ...block, children })
+      else if (rules.emptySections === 'keep') out.push({ ...block, children: [{ kind: 'paragraph', content: [] }] })
       topIndex++
       continue
     }
@@ -324,7 +341,6 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   let rest = sections.filter((section) => !placed.has(section))
   // Adding nothing to the template: sections without a box of their own go into its Notes box
   // (under a bold heading), or else into its description area; with neither, they are reported.
-  const boldHeading = (text: string): AnyBlock => ({ kind: 'paragraph', content: [{ text, bold: true }] })
   if (rules.additions === 'none') {
     const notes = out.find((block) => block.kind === 'textField' && typeof block.title === 'string' && NOTES_TITLE.test(block.title.trim()))
     const hasArea = descriptionAt !== -1
@@ -341,6 +357,16 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
       rest = []
     }
     // Otherwise everything goes into the description area, as text under bold headings.
+  }
+  // Game-master sections when the template has no secret block: a new secret block when the
+  // template's rules add boxes, otherwise reported (never put where players could read them).
+  if (secretSections.length && !hasSecretBlock) {
+    if (rules.additions === 'add') {
+      out.push({
+        kind: 'secret',
+        children: secretSections.flatMap((section) => [h(2, section.heading) as unknown as AnyBlock, ...(sectionChildren(section) as unknown as AnyBlock[])]),
+      })
+    } else for (const section of secretSections) leftOut(`the section “${section.heading}” (game-master only; the template has no secret block, and it is not put where players could read it)`)
   }
   const mechanics = rest.filter((section) => section.kind === 'mechanics')
   const lore = rest.filter((section) => section.kind !== 'mechanics')

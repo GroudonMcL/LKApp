@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { TaskPlan } from '@/core/assistant/plan'
+import { SORT_SOURCE_SYSTEM, SortSourceOutput } from './sort'
 
 /**
  * Analysis tasks the AI may be asked to do. Each has a fixed, version-controlled system
@@ -94,6 +95,7 @@ export const ANALYSIS_TASKS = {
   extract_events: { version: 'events-v1', name: 'event_candidates', system: EXTRACT_EVENTS_SYSTEM, schema: ExtractEventsOutput, maxTokens: 8000 },
   compare_pages: { version: 'compare-v1', name: 'page_comparison', system: COMPARE_PAGES_SYSTEM, schema: ComparePagesOutput, maxTokens: 8000 },
   plan_task: { version: 'plan-v1', name: 'task_plan', system: PLAN_TASK_SYSTEM, schema: TaskPlan, maxTokens: 4000 },
+  sort_source: { version: 'sort-v1', name: 'source_sorting', system: SORT_SOURCE_SYSTEM, schema: SortSourceOutput, maxTokens: 16000 },
 } as const
 
 export type AnalysisTaskId = keyof typeof ANALYSIS_TASKS
