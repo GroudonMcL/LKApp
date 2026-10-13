@@ -132,7 +132,8 @@ export function stagedUpdate(home: string | null = appHome()): { build: number; 
   if (!home) return null
   try {
     const info = JSON.parse(readFileSync(join(home, 'updates', 'ready.json'), 'utf8')) as { build: number; version: string }
-    return existsSync(join(readyDir(home), 'LK Companion', 'launcher.mjs')) ? info : null
+    // An update no newer than this copy (left from before a newer one was installed by hand) is not offered.
+    return existsSync(join(readyDir(home), 'LK Companion', 'launcher.mjs')) && info.build > currentVersion().build ? info : null
   } catch {
     return null
   }

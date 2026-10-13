@@ -97,7 +97,12 @@ writeFileSync(
 title LK Companion
 cd /d "%~dp0"
 if defined LKC_HOME (set "LKC_DATA=%LKC_HOME%") else (set "LKC_DATA=%LOCALAPPDATA%\\LK Companion")
-if exist "%LKC_DATA%\\updates\\ready\\LK Companion\\apply-update.cmd" if not "%LKC_AFTER_UPDATE%"=="1" goto update
+if "%LKC_AFTER_UPDATE%"=="1" goto run
+if not exist "%LKC_DATA%\\updates\\ready\\LK Companion\\apply-update.cmd" goto run
+rem A downloaded update is waiting: install it if it is newer than this copy (an older one is discarded).
+"%~dp0node\\node.exe" "%~dp0launcher.mjs" --pending-update
+if errorlevel 75 if not errorlevel 76 goto update
+:run
 "%~dp0node\\node.exe" "%~dp0launcher.mjs"
 if errorlevel 75 if not errorlevel 76 goto update
 if errorlevel 1 (
@@ -109,7 +114,8 @@ if errorlevel 1 (
 exit /b
 :update
 copy /y "%LKC_DATA%\\updates\\ready\\LK Companion\\apply-update.cmd" "%TEMP%\\lkc-apply-update.cmd" >nul
-start "Updating LK Companion" "%TEMP%\\lkc-apply-update.cmd" "%~dp0." "%LKC_DATA%"
+rem Through "cmd /c call": started directly, cmd would strip the first and last quote of this line.
+start "Updating LK Companion" cmd /c call "%TEMP%\\lkc-apply-update.cmd" "%~dp0." "%LKC_DATA%"
 exit /b
 `),
 )
@@ -147,7 +153,7 @@ del /q "%DATADIR%\\updates\\ready.json" 2>nul
 echo Done.
 if "%LKC_NO_RESTART%"=="1" exit /b 0
 set "LKC_AFTER_UPDATE=1"
-start "LK Companion" "%APPDIR%\\Start LK Companion.cmd"
+start "LK Companion" cmd /c call "%APPDIR%\\Start LK Companion.cmd"
 exit /b 0
 :failed
 echo.

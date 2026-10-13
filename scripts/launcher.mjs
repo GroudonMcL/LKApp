@@ -9,7 +9,7 @@
 //   otherwise in your default browser.
 // - Keep the launcher window open while you use the app; closing it (or Ctrl+C) stops the app.
 import { spawn, spawnSync } from 'node:child_process'
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -43,6 +43,31 @@ function settingFromFile(name) {
 
 /** The app's exit code asking "Start LK Companion" to install a downloaded update and restart. */
 const RESTART_FOR_UPDATE = 75
+
+/**
+ * `--pending-update` (from "Start LK Companion"): exit 75 when a downloaded update newer than
+ * this copy is waiting; otherwise remove any leftover one (e.g. after installing a newer version
+ * by hand) and exit 0, so it is never installed over a newer copy.
+ */
+if (process.argv.includes('--pending-update')) {
+  const buildOf = (file) => {
+    try {
+      return Number(JSON.parse(readFileSync(file, 'utf8')).build) || 0
+    } catch {
+      return 0
+    }
+  }
+  const ready = home ? join(home, 'updates', 'ready') : null
+  const waiting = ready ? buildOf(join(ready, 'LK Companion', 'version.json')) : 0
+  const own = buildOf(join(root, 'version.json'))
+  if (ready && waiting > own) process.exit(RESTART_FOR_UPDATE)
+  if (ready && existsSync(ready)) {
+    rmSync(ready, { recursive: true, force: true })
+    rmSync(join(home, 'updates', 'ready.json'), { force: true })
+    say(`An older downloaded update (build ${waiting || '?'}) was removed; this copy is build ${own || '?'}.`)
+  }
+  process.exit(0)
+}
 
 const port = Number(process.env.LKC_PORT || settingFromFile('LKC_PORT') || (packaged ? 3127 : 3000))
 const url = `http://127.0.0.1:${port}`
