@@ -20,7 +20,8 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "check": "npm run typecheck && npm test",
-    "mock:lk": "tsx scripts/mock-legendkeeper.ts"
+    "mock:lk": "tsx scripts/mock-legendkeeper.ts",
+    "clipper:phase1": "tsx scripts/clipper-phase1.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",

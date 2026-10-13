@@ -1010,12 +1010,14 @@ src/app/              pages and /api route handlers
 src/components/       UI components (draft review, write panel, preview)
 src/core/             domain model and pure logic (records, matching, audits, tags, migration checks)
 src/server/           configuration, connector, AI, extraction, services, database
+src/core/clipper/, src/server/clipper/   Web Clipper (Phase 1): clip layout, page index, LegendKeeper calls
 src/proxy.ts          localhost-only request guard
-scripts/              db:migrate, rehearsal server, capability probe
+scripts/              db:migrate, rehearsal server, capability probe, clipper Phase 1 proof of concept
 tests/unit/           unit and service tests (mock LegendKeeper, mock AI)
 tests/contract/       real SDK against a local documented-API server
 tests/integration/    optional live tests (opt-in)
 docs/CAPABILITIES.md  API/SDK capability matrix and what was verified live
 docs/PHASE2_REPORT.md Phase 2 starting report, plan and milestone reports
 docs/PHASE3_REPORT.md Phase 3 plan, milestone reports and definition of done
+docs/WEB_CLIPPER_PHASE1.md  Web Clipper Phase 1: the LegendKeeper side, proved live
 ```
