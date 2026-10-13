@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, statusTone, useAction, useApi } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, Loading, More, Notice, formatDate, statusTone, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { TaxonomyConfig, TaxonomyEntry, TagRule } from '@/core/tag-assistant'
 import type { BatchListing, TagOverview, TaggingView } from '@/lib/types'
@@ -16,10 +16,13 @@ export default function TaggingPage() {
     <>
       <div className="page-header">
         <h1>Tagging assistant</h1>
-        <p>
-          Suggests tags for existing pages, using your existing tags, the page’s place in the tree, its neighbours, its links and (if you switch it on) the AI. You choose every
+        <p className="lead">Suggests tags for existing pages; you choose and approve every one.</p>
+        <More>
+          <p className="small">
+            Suggests tags for existing pages, using your existing tags, the page’s place in the tree, its neighbours, its links and (if you switch it on) the AI. You choose every
           tag. Nothing is changed until you approve and run a job, and existing tags are never removed unless you tick a removal yourself.
-        </p>
+          </p>
+        </More>
       </div>
       <Taxonomy />
       <NewJob />

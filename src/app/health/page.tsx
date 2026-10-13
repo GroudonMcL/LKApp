@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, Loading, More, Notice, formatDate, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { FindingRow, HealthDashboard } from '@/lib/types'
 
@@ -50,10 +50,13 @@ export default function HealthPage() {
     <>
       <div className="page-header">
         <h1>Wiki Health</h1>
-        <p>
-          A read-only check of your LegendKeeper project. It never changes anything; it lists things worth a look, says how sure it is, and remembers what you dismissed or
+        <p className="lead">A read-only check of your project for things worth a look.</p>
+        <More>
+          <p className="small">
+            A read-only check of your LegendKeeper project. It never changes anything; it lists things worth a look, says how sure it is, and remembers what you dismissed or
           marked intentional. Fixes happen in the Tagging assistant, Template migration, or LegendKeeper itself.
-        </p>
+          </p>
+        </More>
       </div>
       <ErrorBox error={dash.error} />
       {dash.loading && !dash.data && <Loading />}
@@ -200,6 +203,7 @@ function RunAudit({ dash, onChange }: { dash: HealthDashboard; onChange: () => v
           )}
         </p>
       )}
+      <More label="Audit options" open={mode !== 'all' || checks.length !== dash.categories.length || !readContent}>
       <div className="grid grid-2">
         <div className="field">
           <label htmlFor="a-mode">What to check</label>
@@ -250,13 +254,12 @@ function RunAudit({ dash, onChange }: { dash: HealthDashboard; onChange: () => v
           ))}
         </div>
       </div>
+      </More>
       <div className="row">
         <Button variant="primary" busy={action.busy} disabled={Boolean(run) || checks.length === 0} onClick={() => void start()}>
           Start audit
         </Button>
-        <span className="small muted">
-          Needs a project scan (<Link href="/pages">Page browser</Link>). Layout checks need a template copied from LegendKeeper; field and source checks use your recipes.
-        </span>
+        <span className="small muted">{mode === 'all' && checks.length === dash.categories.length ? 'Every check, on the whole project.' : 'With the options you chose.'}</span>
       </div>
     </Card>
   )

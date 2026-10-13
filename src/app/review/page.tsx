@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Badge, Card, Empty, ErrorBox, Loading, formatDate, useApi } from '@/components/ui'
+import { Badge, Card, Empty, ErrorBox, Loading, More, formatDate, useApi } from '@/components/ui'
 import type { ReviewQueue } from '@/lib/types'
 
 const SEVERITY_TONE = { high: 'bad', medium: 'warn', low: 'neutral' } as const
@@ -18,10 +18,13 @@ export default function ReviewPage() {
     <>
       <div className="page-header">
         <h1>Review queue</h1>
-        <p>
-          Everything waiting for a decision from you, across imports, tagging, migrations, Wiki Health and writes. Each entry says why it needs you and links to where you deal
+        <p className="lead">Everything waiting for a decision from you.</p>
+        <More>
+          <p className="small">
+            Everything waiting for a decision from you, across imports, tagging, migrations, Wiki Health and writes. Each entry says why it needs you and links to where you deal
           with it. Entries disappear once their cause is resolved.
-        </p>
+          </p>
+        </More>
       </div>
       <Card>
         <div className="row toolbar">

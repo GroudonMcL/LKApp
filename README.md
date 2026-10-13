@@ -1,4 +1,4 @@
-# LK Companion — Phase 3
+# LK Companion
 
 A private web app, running on your own computer, that helps you **import, organise and
 maintain your LegendKeeper project** with AI assistance — without losing information,
@@ -16,7 +16,8 @@ without your explicit approval of the exact change.
 | --- | --- |
 | **Connection** | Tested automatically (read-only) when you open the app; shows your project's name and ID and whether writing is on. |
 | **Page browser** (read-only) | Scan your project's page list into a local index (metadata only, resumable), filter by name/alias/tag/untagged, open any page to see its documents, sidebar properties, text, block structure and version. Live LegendKeeper search. |
-| **Import studio** | One source → one page: upload or paste, choose a recipe, draft (AI or structural), review, approve, create. |
+| **Import** | Files, saved web pages or pasted text in; pages of the right kinds out. The AI sorts the source (which subjects deserve a page, which LegendKeeper template each one fits, what is clutter), drafts each page, and the app checks them all; you see one list and choose what to create. Sources from any edition or game system go into the same templates; nothing is recalculated. No recipe needed: page kinds are set up from your LegendKeeper templates. |
+| **Import with a recipe** | One source → one page with a recipe you choose (Import → *Other ways to import*). |
 | **Batch import** *(Phase 2)* | Several files in one job (Markdown, text, JSON, HTML, Word `.docx`, PDF with a text layer; images and scanned PDFs by AI transcription on request). Many records per document (by heading, statblock, separator, paragraph or JSON list). One draft per record, duplicate matching against your project and within the batch, dry run, approval of selected records, run, per-record results and CSV/JSON reports. |
 | **Recipes & templates** | Reusable, versioned recipes (page type, template, field labels, required fields, defaults, tag/link policy, AI instructions, batch and migration settings). Templates **copied from your LegendKeeper templates** (or any example page), or configured locally. |
 | **Wiki Health** *(Phase 2)* | Read-only audit of existing pages: untagged pages, similar or misspelt tags, pages that do not match their type's layout, missing expected fields, likely duplicates, broken links, naming problems, missing attribution, unreadable content. Findings are kept, can be filtered, dismissed or marked intentional, and are revisited by later audits. |
@@ -27,7 +28,7 @@ without your explicit approval of the exact change.
 | **Chronology** *(Phase 3)* | A local chronology from your event pages, dated fields (Born, Died, Founded, Destroyed), the LegendKeeper timelines as last read and the events you accept. Dates are kept as written, with their uncertainty (approximate, ranges, decades, centuries, relative, unknown) and configurable calendars (Greyhawk CY/BCY by default). Filters, events per period, conflicting dates and impossible sequences, and adding an exactly dated event to an existing LegendKeeper timeline with preview and approval. |
 | **Event discovery** *(Phase 3)* | Finds events described in ordinary pages (rule-based; the AI optionally), each citing its sentence. Accept, edit, reject or defer; accepted events join the chronology and can become drafts with your event recipe. |
 | **Knowledge analysis** *(Phase 3)* | Relationships (page tree, links, fields, wording), pages that name another page without linking it, names used across pages that have no page, contradictions, naming variants and near-duplicate pages, each with its evidence. Optional AI comparison of 2–5 pages. |
-| **Relationship browser & search** *(Phase 3)* | One page and its neighbours as a graph and a table, with how each connection is supported. A combined search (name, kind, tags, folder, text, fields, dates, links, findings) with saved searches. |
+| **Relationships & search** *(Phase 3)* | A map of the whole project (or the pages around one), up to 3000 pages, and one page's neighbours as a graph and a table, with how each connection is supported. A combined search (name, kind, tags, folder, text, fields, dates, links, findings) with saved searches. |
 | **Task Assistant** *(Phase 3)* | Plain-English maintenance requests turned into a checked plan of the app's own operations, run read-only; changes are handed to the tool that makes them with approval. |
 
 **Out of scope** (by design): changes without approval, automatic deletion or merging of pages,
@@ -279,10 +280,10 @@ On Windows, double-clicking **Start LK Companion.cmd** in the source folder does
 1. Open the app. If no LegendKeeper key is set yet, the dashboard asks for it (and optionally an OpenRouter key) and saves it on this computer. The connection is tested automatically; the dashboard and **Connection** page show your project name and ID.
 2. **Page browser** → *Scan project*. This copies page names, parents, tags and aliases (no page content) into the local index. You can pause and resume it.
 3. **Tag audit** — see tags and pages without tags.
-4. **Recipes & templates → Copy from LegendKeeper** — copy your template (e.g. *Statblock*). This also makes a recipe of the same name. Open the recipe and set a *default parent* (where new pages go), e.g. a sandbox page while testing. *Allow creation after approval* is on by default.
-5. **Import studio** → paste text or upload a file, choose the recipe, *Create import*. On the import you can pick a different template (*Lay the page out with*), and you can switch it again while reviewing the draft.
-6. *Run AI transformation* (or *Run structural*). Review the draft tab by tab; fix fields, choose links, accept or reject tags; *Save draft*.
-7. *Open final preview* → check everything → tick the confirmation → *Create page*. The result links to the new page and the audit log records it.
+4. **Import → Page kinds → Set up from my LegendKeeper templates.** This reads your templates (nothing changes in LegendKeeper) and makes one page kind for each.
+5. **Import** → drop in files or a saved web page, or paste text; choose where new pages go (e.g. a sandbox page while testing); *Import*.
+6. The result lists every page found with its kind. Look at anything marked *Needs a look*; change a kind if the AI chose wrongly; open *Details* or *Review and edit the draft* if you want to.
+7. *Create N pages in LegendKeeper*. Each page is checked again just before it is written; the list links to the new pages and the audit log records them.
 
 ### Rehearsing safely first
 
@@ -299,9 +300,55 @@ In `.env.local` set `LEGENDKEEPER_BASE_URL=http://127.0.0.1:4010`, any key start
 separate `LKC_DATABASE_PATH` (e.g. `./data/rehearsal.db`) so rehearsal data stays apart. Remove
 `LEGENDKEEPER_BASE_URL` to go back to the real LegendKeeper.
 
-## Importing many files (batch import)
+## Importing (files, web pages, text)
 
-**Batch jobs → New batch import.**
+**Import.** Drop in one or more files (text, Markdown, JSON, saved web pages `.html`, Word
+`.docx`, PDF, images), or paste text, then *Import*. The rest runs on its own, with progress on
+screen:
+
+1. **Sort.** The AI reads the source with numbered lines and answers, with line numbers only,
+   which subjects deserve a page (one creature, one character, one place…), which **page kind**
+   each one is, and which parts are clutter (menus, adverts, cookie notices, share buttons,
+   reader comments, copyright lines). The app cuts the source at those lines itself, so no text
+   is reworded at this step, and everything left out is listed under *Left out* (with *Make a
+   page* if something belongs on one). Text in the source that tries to instruct the AI is
+   reported and treated as data. A long source is sorted in parts. Free models are uneven: an
+   empty answer is retried once, then the file is split without AI (by headings or statblocks)
+   and the screen says so.
+2. **Draft.** Each page is drafted with its kind's recipe, exactly like a single import (fields
+   checked against the source, uncertain values never written). The source may come from any
+   edition or game system: values go into the field that means the same thing, copied as
+   written; statistics with no field (THAC0, Hit Dice, Morale, Treasure Type…) are kept under
+   *Other Statistics*.
+3. **Check.** Each draft is matched against your project and the other pages found, and every
+   check of the final preview is run (parent, links, same-name pages, validation). Nothing is
+   written.
+4. **Create.** Ready pages are ticked. *Create N pages in LegendKeeper* approves and writes the
+   ticked ones; pages with warnings are created only if you tick *Also create the ones with
+   warnings*. Each page is re-checked right before it is written, as in a batch.
+
+**Page kinds** are your LegendKeeper templates. *Set up from my LegendKeeper templates* reads each
+template and matches it to a built-in page type (by its name and its fields), so the AI fills
+its rows; rows the type has no field for (e.g. *Gender*, *Age*, *Friends*) become fields of their
+own. A template that resembles no built-in type (e.g. *Class Details*) gets a page type made from
+its own fields and boxes. Statblocks are fitted to each creature; other templates are followed
+exactly (change this per template on *Recipes & templates*). A template you already copied is
+reused with your choices. Without any page kinds set up, the built-in page types are used.
+
+**Secrets.** Anything the source puts under a heading such as *Secrets*, *GM notes* or *DM only*
+goes into the page's Secrets, and into the template's **secret block** (players never see it),
+whatever the AI did: a paragraph elsewhere that repeats it is moved there, and a field that
+repeats it is not written.
+
+**What is sent to the AI** (only in AI mode, only to your configured provider; on OpenRouter,
+free models only): the source text once to sort it (numbered lines, plus the names and fields of
+your page kinds), then each page's own lines once to draft it. *More options → Without AI* sends
+nothing anywhere.
+
+## Importing many files with a recipe (batch import)
+
+**Batch jobs → New batch import** (or Import → *Other ways to import*) — for sources that follow
+fixed rules you want to control yourself.
 
 1. **Recipe.** Choose the recipe. Its *record rules* say how one file is split into records:
    whole file, by heading level, statblock (a heading followed by statblock labels), a separator
@@ -481,9 +528,16 @@ changes nothing in LegendKeeper. Choose pages and checks, press *Analyse*:
 pages; each finding must quote at least two pages word for word or it is dropped, and its
 explanation is shown as a suggestion. Date disagreements are on the Chronology page.
 
-## Relationship browser and search
+## Relationships and search
 
-**Relationships** shows one page in the middle and the pages connected to it, as a graph (line
+**Relationships → Map** draws the whole project (or, under *Map options*, the pages up to four
+steps from one page) as a map you can drag and zoom: up to 3000 pages, the most connected first.
+Colours show the kind of page; line styles show how each connection is supported. Click a page
+for its connections, *Centre the map here*, or *Relationships in detail*. The page tree (“filed
+under”) and relationships inferred from wording can be switched on; the page tree is shown on its
+own while few pages have been read by an audit.
+
+**Relationships → One page** shows one page in the middle and the pages connected to it, as a graph (line
 style shows the support: link or field, wording, page tree, accepted AI suggestion) and a table
 with the evidence. Filter by relationship, support and kind; click a neighbour to move to it.
 LegendKeeper has no backlinks endpoint, so incoming links are found by reading the pages audits
@@ -511,7 +565,7 @@ pages the names refer to, what (if anything) would go to the AI, and the limitat
 match several pages, or none, are asked about rather than guessed. Read-only plans run straight
 away; a step that sends page text to the AI needs a tick first. The assistant never writes to
 LegendKeeper: “add tags…”, “fix the links…” and similar requests are handed to the Tagging
-assistant, Template migration, Import studio or Chronology, which show their own final preview.
+assistant, Template migration, Import or Chronology, which show their own final preview.
 
 *Plan with AI* (optional) sends only your request, the list of operations and your tag names (no
 page text) to the selected provider; its plan is checked against the same list, and anything

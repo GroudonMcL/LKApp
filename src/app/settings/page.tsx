@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Badge, Button, Card, ErrorBox, KeyValue, Loading, Notice, useAction, useApi } from '@/components/ui'
+import { Badge, Button, Card, ErrorBox, KeyValue, Loading, More, Notice, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { ConnectionSummary, UpdateStatus } from '@/lib/types'
 import type { OpenRouterStatus } from '@/server/services/ai-status'
@@ -17,10 +17,13 @@ export default function SettingsPage() {
     <>
       <div className="page-header">
         <h1>Settings</h1>
-        <p>
-          Your API keys and the AI choice are saved in a settings file on this computer when you press <em>Save on this computer</em>. Other options are described in
+        <p className="lead">API keys, AI and updates.</p>
+        <More>
+          <p className="small">
+            Your API keys and the AI choice are saved in a settings file on this computer when you press <em>Save on this computer</em>. Other options are described in
           the README.
-        </p>
+          </p>
+        </More>
       </div>
       <ErrorBox error={error ?? action.error} />
       {loading && !data && <Loading />}

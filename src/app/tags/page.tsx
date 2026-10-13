@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, useApi } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, Loading, More, Notice, formatDate, useApi } from '@/components/ui'
 import type { BrowseResult, TagOverview } from '@/lib/types'
 
 export default function TagAuditPage() {
@@ -14,7 +14,12 @@ export default function TagAuditPage() {
     <>
       <div className="page-header">
         <h1>Tag audit</h1>
-        <p>Read-only. See which tags your project uses and which pages have none. Phase 1 does not change tags on existing pages.</p>
+        <p className="lead">Which tags your project uses, and which pages have none. Read-only.</p>
+        <More>
+          <p className="small">
+            Read-only. See which tags your project uses and which pages have none. To change tags, use the Tagging assistant.
+          </p>
+        </More>
       </div>
       <ErrorBox error={error} />
       {loading && !data && <Loading />}

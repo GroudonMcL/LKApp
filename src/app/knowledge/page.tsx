@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Suspense, useState } from 'react'
 import { KnowledgeItemCard, type KnowledgeItemView } from '@/components/knowledge-item'
-import { Badge, Button, Card, Empty, ErrorBox, KeyValue, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, KeyValue, Loading, More, Notice, formatDate, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 
 type Kind = 'relationship' | 'link_suggestion' | 'missing_page' | 'contradiction' | 'terminology'
@@ -84,11 +84,14 @@ function Knowledge() {
     <>
       <div className="page-header">
         <h1>Knowledge analysis</h1>
-        <p>
-          Connections and maintenance opportunities across your wiki, worked out from the local page index and the page content <Link href="/health">Wiki Health audits</Link>{' '}
+        <p className="lead">Connections, contradictions and missing pages across your wiki. Read-only.</p>
+        <More>
+          <p className="small">
+            Connections and maintenance opportunities across your wiki, worked out from the local page index and the page content <Link href="/health">Wiki Health audits</Link>{' '}
           read. Running it changes nothing in LegendKeeper. Every finding cites the page and words it rests on and says whether it is stated (a link, a field, the exact
           wording) or only suggested. Explore one page&apos;s connections in the <Link href="/relationships">relationship browser</Link>.
-        </p>
+          </p>
+        </More>
       </div>
       <ErrorBox error={action.error} />
       {message && <Notice tone="success">{message}</Notice>}

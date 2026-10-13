@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, statusTone, useAction, useApi } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, Loading, More, Notice, formatDate, statusTone, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { BrowseResult, ResourcePage, ScanStatus, SearchHit } from '@/lib/types'
 
@@ -12,7 +12,12 @@ export default function PageBrowser() {
     <>
       <div className="page-header">
         <h1>Page browser</h1>
-        <p>Read-only. Browse your LegendKeeper resources, filter them, and open one to see its documents, properties and blocks.</p>
+        <p className="lead">Browse your LegendKeeper pages. Read-only.</p>
+        <More>
+          <p className="small">
+            Read-only. Browse your LegendKeeper resources, filter them, and open one to see its documents, properties and blocks.
+          </p>
+        </More>
       </div>
       <ScanPanel />
       <Suspense fallback={<Loading />}>

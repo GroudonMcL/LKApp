@@ -185,6 +185,10 @@ With OpenRouter all three went through the free-only checks live: one event-extr
 (10 proposals, all quotes verified), one plan request, served by
 `nvidia/nemotron-3-super-120b-a12b:free` at a reported cost of 0.
 
+## Dependencies added later
+
+`d3-force` 3.0.0 (layout of the relationship map, in the browser), pinned exactly.
+
 ## Dependencies added in Phase 2
 
 `unpdf` 1.8.1 (PDF text, page by page), `mammoth` 1.13.0 (Word `.docx`, with external file

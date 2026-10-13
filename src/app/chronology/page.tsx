@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { Citation, KnowledgeItemCard, type CitationView, type KnowledgeItemView } from '@/components/knowledge-item'
 import { TimelineWritePanel } from '@/components/timeline-write-panel'
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, Loading, More, Notice, formatDate, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 
 interface DatePointView {
@@ -135,12 +135,15 @@ function Chronology() {
     <>
       <div className="page-header">
         <h1>Chronology</h1>
-        <p>
-          A <strong>local chronology</strong> built from your pages (event pages, and dated fields such as Born, Died and Founded), the LegendKeeper timelines as last
+        <p className="lead">Dated events from your pages, timelines and accepted discoveries, in order. Read-only.</p>
+        <More>
+          <p className="small">
+            A <strong>local chronology</strong> built from your pages (event pages, and dated fields such as Born, Died and Founded), the LegendKeeper timelines as last
           read, and the events you accepted from <Link href="/chronology/discover">event discovery</Link>. Dates are shown as the sources write them; uncertainty is kept,
           and disagreements are reported, never resolved for you. Viewing this changes nothing in LegendKeeper. It is <em>not</em> a LegendKeeper timeline: an event
           only reaches a LegendKeeper timeline when you add it there yourself, through the approval step on the event discovery page.
-        </p>
+          </p>
+        </More>
       </div>
       <ErrorBox error={error} />
       <ErrorBox error={action.error} />

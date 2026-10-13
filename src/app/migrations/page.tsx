@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, statusTone, useAction, useApi } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, Loading, More, Notice, formatDate, statusTone, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { Recipe } from '@/core/recipe'
 import type { BatchListing, MigrationView, TemplateWithReport } from '@/lib/types'
@@ -15,10 +15,13 @@ export default function MigrationsPage() {
     <>
       <div className="page-header">
         <h1>Template migration</h1>
-        <p>
-          Brings older pages into the layout of a newer template without losing anything. Start with one representative page, check the before-and-after comparison, then
+        <p className="lead">Moves older pages into a newer template’s layout without losing anything.</p>
+        <More>
+          <p className="small">
+            Brings older pages into the layout of a newer template without losing anything. Start with one representative page, check the before-and-after comparison, then
           run the same recipe on more pages. Nothing is changed in LegendKeeper until you approve a page and apply it.
-        </p>
+          </p>
+        </More>
       </div>
       <HowItWorks />
       <NewMigration />

@@ -174,7 +174,7 @@ async function setUpOne(ctx: AppContext, lk: { id: string; name: string }, usedT
     const builtIn = findBuiltInPageType(local.definition.pageType)
     if (builtIn) {
       const type = withExtraFields(builtIn, blocks)
-      const recipe = createRecipe(ctx, importRecipe(ctx, label, description, type.pageType.id, local.id, { extraFields: type.extraFields, ...onlyTemplateFields(type.pageType, blocks, local.definition.layoutRules.additions) }))
+      const recipe = saveImportRecipe(ctx, importRecipe(ctx, label, description, type.pageType.id, local.id, { extraFields: type.extraFields, ...onlyTemplateFields(type.pageType, blocks, local.definition.layoutRules.additions) }))
       return { templateId: local.id, recipeId: recipe.id, enabled: true, reason: 'Uses the copy of this template you already made, with its layout rules.' }
     }
     const own = ctx.repos.recipes.list().find((r) => r.definition.templateId === local.id && r.definition.customPageType?.id === local.definition.pageType)
@@ -194,7 +194,7 @@ async function setUpOne(ctx: AppContext, lk: { id: string; name: string }, usedT
     return { templateId: template.id, recipeId: recipe.id, enabled: true, reason: type.reason }
   }
   const { template } = await copyLayout(ctx, { resource: lk.id, pageType: { ...type.pageType, fields: [...type.pageType.fields, ...type.extraFields] }, name: `${label} (from LegendKeeper)`, layoutRules: rules })
-  const recipe = createRecipe(ctx, importRecipe(ctx, label, description, type.pageType.id, template.id, { extraFields: type.extraFields, ...onlyTemplateFields(type.pageType, blocks, rules.additions) }))
+  const recipe = saveImportRecipe(ctx, importRecipe(ctx, label, description, type.pageType.id, template.id, { extraFields: type.extraFields, ...onlyTemplateFields(type.pageType, blocks, rules.additions) }))
   return { templateId: template.id, recipeId: recipe.id, enabled: true, reason: type.reason }
 }
 
@@ -207,6 +207,14 @@ function onlyTemplateFields(type: PageTypeDefinition, blocks: Record<string, unk
   if (additions !== 'none') return {}
   const covered = new Set(summarizeLayout(blocks, type).rows.flatMap((row) => row.fieldKeys))
   return { customPageType: { ...type, builtIn: false, fields: type.fields.filter((field) => covered.has(field.key)) } }
+}
+
+/** The import's recipe for a template: the one made before (a new version of it), or a new one. */
+function saveImportRecipe(ctx: AppContext, definition: RecipeDefinition): Recipe {
+  const earlier = ctx.repos.recipes.list().find((r) => r.definition.name.startsWith('Import: ') && r.definition.description === definition.description && r.definition.templateId === definition.templateId)
+  if (!earlier) return createRecipe(ctx, definition)
+  const updated = ctx.repos.recipes.update(earlier.id, RecipeDefinition.parse({ ...earlier.definition, extraFields: definition.extraFields, customPageType: definition.customPageType, requiredFields: [] }), earlier.version)
+  return updated && updated !== 'conflict' ? updated : earlier
 }
 
 function importRecipe(ctx: AppContext, label: string, description: string, pageType: string, templateId: string | null, extra: Partial<RecipeDefinition>) {

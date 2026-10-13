@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, JsonView, Loading, formatDate, statusTone, useAction } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, JsonView, Loading, More, formatDate, statusTone, useAction } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { AuditEvent } from '@/lib/types'
 
@@ -12,7 +12,12 @@ export default function HistoryPage() {
     <>
       <div className="page-header">
         <h1>History & audit</h1>
-        <p>Every connection test, scan, import, transformation, approval and write is recorded here with its outcome. API keys and source documents are never stored in this log.</p>
+        <p className="lead">Everything the app has done, with its outcome.</p>
+        <More>
+          <p className="small">
+            Every connection test, scan, import, transformation, approval and write is recorded here with its outcome. API keys and source documents are never stored in this log.
+          </p>
+        </More>
       </div>
       <Suspense fallback={<Loading />}>
         <AuditLog />

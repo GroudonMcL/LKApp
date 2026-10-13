@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, KeyValue, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, KeyValue, Loading, More, Notice, formatDate, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { Recipe } from '@/core/recipe'
 import { LAYOUT_PRESETS, type LayoutRules, type TemplateDefinitionInput } from '@/core/template'
@@ -17,16 +17,43 @@ export default function RecipesPage() {
     <>
       <div className="page-header">
         <h1>Recipes & templates</h1>
-        <p>
-          A <strong>template</strong> is how a page looks (copy one from LegendKeeper). A <strong>recipe</strong> is how a source becomes that page: the template, fields, tag and link
+        <p className="lead">Page kinds and how sources become pages.</p>
+        <More>
+          <p className="small">
+            A <strong>template</strong> is how a page looks (copy one from LegendKeeper). A <strong>recipe</strong> is how a source becomes that page: the template, fields, tag and link
           rules, and instructions for the AI. Copying a template from LegendKeeper makes a matching recipe for you. Recipes are versioned; each draft remembers the exact version it used.
-        </p>
+          </p>
+        </More>
       </div>
       <Card title="Recipes" actions={<Link className="btn btn-primary" href="/recipes/new">New recipe</Link>}>
         <ErrorBox error={error} />
         {loading && <Loading />}
         {data && data.recipes.length === 0 && <Empty title="No recipes">Create one to start importing.</Empty>}
         {data && data.recipes.length > 0 && (
+          <>
+          <RecipeTable recipes={data.recipes.filter((r) => !r.definition.name.startsWith('Import: '))} templates={templateNames.data?.templates ?? []} />
+          {data.recipes.some((r) => r.definition.name.startsWith('Import: ')) && (
+            <More label={`Made by the import for its page kinds (${data.recipes.filter((r) => r.definition.name.startsWith('Import: ')).length})`}>
+              <RecipeTable recipes={data.recipes.filter((r) => r.definition.name.startsWith('Import: '))} templates={templateNames.data?.templates ?? []} />
+            </More>
+          )}
+          </>
+        )}
+      </Card>
+      <Templates
+        recipes={data?.recipes ?? []}
+        onRecipesChanged={async () => {
+          await reload()
+          await templateNames.reload()
+        }}
+      />
+    </>
+  )
+}
+
+function RecipeTable({ recipes, templates }: { recipes: Recipe[]; templates: TemplateWithReport[] }) {
+  if (!recipes.length) return <p className="muted small">No recipes of your own yet.</p>
+  return (
           <div className="table-wrap">
             <table>
               <thead>
@@ -40,7 +67,7 @@ export default function RecipesPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.recipes.map((recipe) => (
+                {recipes.map((recipe) => (
                   <tr key={recipe.id}>
                     <td>
                       <Link href={`/recipes/${recipe.id}`}>{recipe.definition.name}</Link>
@@ -48,7 +75,7 @@ export default function RecipesPage() {
                     </td>
                     <td>{recipe.definition.targetPageType}</td>
                     <td className="small">
-                      {templateNames.data?.templates.find((t) => t.id === recipe.definition.templateId)?.definition.name ?? (recipe.definition.templateId ? <code>{recipe.definition.templateId}</code> : 'default layout')}
+                      {templates.find((t) => t.id === recipe.definition.templateId)?.definition.name ?? (recipe.definition.templateId ? <code>{recipe.definition.templateId}</code> : 'default layout')}
                     </td>
                     <td>{recipe.definition.tagPolicy.mode === 'existing_only' ? 'existing only' : 'may suggest new'}</td>
                     <td>{recipe.definition.allowCreate ? <Badge tone="good">allowed after approval</Badge> : <Badge>review only</Badge>}</td>
@@ -60,16 +87,6 @@ export default function RecipesPage() {
               </tbody>
             </table>
           </div>
-        )}
-      </Card>
-      <Templates
-        recipes={data?.recipes ?? []}
-        onRecipesChanged={async () => {
-          await reload()
-          await templateNames.reload()
-        }}
-      />
-    </>
   )
 }
 

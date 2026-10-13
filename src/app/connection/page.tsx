@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Badge, Button, Card, ErrorBox, KeyValue, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
+import { Badge, Button, Card, ErrorBox, KeyValue, Loading, More, Notice, formatDate, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { ConnectionCheck, ConnectionSummary } from '@/lib/types'
 
@@ -24,10 +24,13 @@ export default function ConnectionPage() {
     <>
       <div className="page-header">
         <h1>LegendKeeper connection</h1>
-        <p>
-          All LegendKeeper calls are made by this app’s server using the official SDK. Your browser never sees the API key. The connection is tested automatically (read-only) when
+        <p className="lead">Your link to LegendKeeper, tested automatically.</p>
+        <More>
+          <p className="small">
+            All LegendKeeper calls are made by this app’s server using the official SDK. Your browser never sees the API key. The connection is tested automatically (read-only) when
           you open the app, and again every 10 minutes while you use it.
-        </p>
+          </p>
+        </More>
       </div>
       <ErrorBox error={error} />
       {loading && !data && <Loading />}

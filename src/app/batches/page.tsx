@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, Loading, formatDate, statusTone, useApi } from '@/components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, Loading, More, formatDate, statusTone, useApi } from '@/components/ui'
 import type { BatchListing } from '@/lib/types'
 
 const KINDS = [
@@ -23,10 +23,13 @@ export default function BatchesPage() {
     <>
       <div className="page-header">
         <h1>Batch jobs</h1>
-        <p>
-          Every job: imports of many records, tag applications and template migrations. Open one to continue where you left off; nothing is lost between visits or when the
+        <p className="lead">Every batch job, and where it got to.</p>
+        <More>
+          <p className="small">
+            Every job: imports of many records, tag applications and template migrations. Open one to continue where you left off; nothing is lost between visits or when the
           app restarts (a job that was interrupted says so, and any write in progress is checked before anything else).
-        </p>
+          </p>
+        </More>
       </div>
       <Card
         title="Jobs"
