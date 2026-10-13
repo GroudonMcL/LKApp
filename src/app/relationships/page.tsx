@@ -2,8 +2,10 @@
 
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useMemo, useState } from 'react'
-import { Badge, Card, Empty, ErrorBox, Loading, Notice, useApi } from '@/components/ui'
+import { Suspense, useCallback, useMemo, useState } from 'react'
+import { Badge, Card, Empty, ErrorBox, Loading, More, Notice, useApi } from '@/components/ui'
+import { ParentPicker } from '@/components/parent-picker'
+import { RelationshipMap, type MapEdge, type MapNode } from '@/components/relationship-map'
 
 interface Edge {
   from: string
@@ -47,8 +49,195 @@ const MAX_NODES = 30
 export default function RelationshipsPage() {
   return (
     <Suspense fallback={<Loading />}>
-      <Browser />
+      <Relationships />
     </Suspense>
+  )
+}
+
+function Relationships() {
+  const params = useSearchParams()
+  const router = useRouter()
+  const id = params.get('id')
+  return (
+    <>
+      <div className="page-header">
+        <h1>Relationships</h1>
+        <p className="lead">How your pages connect: links, labelled fields, the page tree and, on request, wording. Read-only.</p>
+      </div>
+      <div className="tabs" role="tablist">
+        <button role="tab" aria-selected={!id} onClick={() => router.push('/relationships')}>
+          Map
+        </button>
+        <button role="tab" aria-selected={Boolean(id)} onClick={() => !id && router.push('/relationships?id=')}>
+          One page
+        </button>
+      </div>
+      {id === null ? <MapView /> : <Browser />}
+    </>
+  )
+}
+
+interface GraphView {
+  nodes: MapNode[]
+  edges: MapEdge[]
+  labels: Record<string, string>
+  tree: boolean
+  totals: { pages: number; connected: number; shown: number; edges: number; unconnected: number; read: number }
+  notes: string[]
+}
+
+function MapView() {
+  const router = useRouter()
+  const [centre, setCentre] = useState<{ id: string; name: string } | null>(null)
+  const [depth, setDepth] = useState(2)
+  const [tree, setTree] = useState<'auto' | 'true' | 'false'>('auto')
+  const [wording, setWording] = useState(false)
+  const [maxNodes, setMaxNodes] = useState(800)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [find, setFind] = useState('')
+  const url = useMemo(() => {
+    const p = new URLSearchParams({ maxNodes: String(maxNodes) })
+    if (centre) p.set('centre', centre.id), p.set('depth', String(depth))
+    if (tree !== 'auto') p.set('tree', tree)
+    if (wording) p.set('wording', 'true')
+    return `/api/relationships/graph?${p}`
+  }, [centre, depth, tree, wording, maxNodes])
+  const { data, error, loading } = useApi<GraphView>(url)
+  const select = useCallback((id: string | null) => setSelected(id), [])
+  const node = data?.nodes.find((n) => n.id === selected) ?? null
+  const neighbours = useMemo(() => {
+    if (!data || !selected) return []
+    const ids = data.edges.flatMap((e) => (e.source === selected ? [e] : e.target === selected ? [{ ...e, target: e.source, source: e.target }] : []))
+    return ids.map((e) => ({ id: e.target, name: data.nodes.find((n) => n.id === e.target)?.name ?? e.target, types: e.types })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [data, selected])
+  const matches = find.trim().length >= 2 && data ? data.nodes.filter((n) => n.name.toLowerCase().includes(find.trim().toLowerCase())).slice(0, 8) : []
+
+  return (
+    <>
+      <Card>
+        <div className="row">
+          <strong>Show:</strong>
+          {centre ? (
+            <>
+              pages up to
+              <select className="inline-select" value={depth} onChange={(e) => setDepth(Number(e.target.value))} aria-label="Steps">
+                {[1, 2, 3, 4].map((d) => (
+                  <option key={d} value={d}>
+                    {d} step{d === 1 ? '' : 's'}
+                  </option>
+                ))}
+              </select>
+              from <Badge tone="info">{centre.name}</Badge>
+              <button type="button" className="link-button" onClick={() => (setCentre(null), setSelected(null))}>
+                show the whole project
+              </button>
+            </>
+          ) : (
+            <span>the whole project</span>
+          )}
+          <span className="spacer" />
+          <input type="search" className="inline-input" placeholder="Find a page on the map" value={find} onChange={(e) => setFind(e.target.value)} aria-label="Find a page on the map" />
+        </div>
+        {matches.length > 0 && (
+          <div className="pill-list" style={{ marginTop: '0.4rem' }}>
+            {matches.map((n) => (
+              <button key={n.id} className="badge badge-neutral" style={{ cursor: 'pointer' }} onClick={() => (setSelected(n.id), setFind(''))}>
+                {n.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <More label="Map options">
+          {!centre && (
+            <div className="field">
+              <label>Centre on a page</label>
+              <ParentPicker value={null} onChange={(v) => (setCentre(v), setSelected(v?.id ?? null))} />
+            </div>
+          )}
+          <div className="row">
+            <label className="check">
+              <input type="checkbox" checked={tree === 'true' || (tree === 'auto' && Boolean(data?.tree))} onChange={(e) => setTree(e.target.checked ? 'true' : 'false')} /> Page tree (“filed under”)
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={wording} onChange={(e) => setWording(e.target.checked)} /> Relationships inferred from wording
+            </label>
+            <label className="row" style={{ fontWeight: 400 }}>
+              At most
+              <select className="inline-select" value={maxNodes} onChange={(e) => setMaxNodes(Number(e.target.value))}>
+                {[200, 800, 2000, 3000].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              pages
+            </label>
+          </div>
+        </More>
+      </Card>
+      <ErrorBox error={error} />
+      {loading && !data && <Loading label="Gathering relationships…" />}
+      {data && data.nodes.length === 0 && (
+        <Empty title="No connections to show">
+          Links between pages are known once a <Link href="/health">Wiki Health audit</Link> has read them. Turn on the page tree in the map options to see how pages are filed.
+        </Empty>
+      )}
+      {data && data.nodes.length > 0 && (
+        <>
+          <RelationshipMap nodes={data.nodes} edges={data.edges} centre={centre?.id ?? null} labels={data.labels} selected={selected} onSelect={select} />
+          <p className="small muted">
+            {data.totals.shown} pages and {data.totals.edges} connections shown{data.totals.unconnected ? `; ${data.totals.unconnected} page(s) have no known connection` : ''}. Drag to move, scroll to zoom, click a page for
+            details.
+          </p>
+          {data.notes.length > 0 && (
+            <More label="Notes">
+              <ul className="small">
+                {data.notes.map((n, i) => (
+                  <li key={i}>{n}</li>
+                ))}
+              </ul>
+            </More>
+          )}
+        </>
+      )}
+      {node && data && (
+        <Card
+          title={node.name}
+          actions={
+            <div className="row">
+              <button type="button" className="btn" onClick={() => setCentre({ id: node.id, name: node.name })}>
+                Centre the map here
+              </button>
+              <button type="button" className="btn" onClick={() => router.push(`/relationships?id=${encodeURIComponent(node.id)}`)}>
+                Relationships in detail
+              </button>
+              <Link className="btn btn-ghost" href={`/pages/${encodeURIComponent(node.id)}`}>
+                Page details
+              </Link>
+            </div>
+          }
+        >
+          <p className="small">
+            <Badge>{node.kind}</Badge> {node.degree} connection{node.degree === 1 ? '' : 's'}
+            {!node.read && <> · <Badge tone="warn">content not read yet</Badge></>}
+          </p>
+          {neighbours.length > 0 && (
+            <More label={`Connected pages (${neighbours.length})`} open={neighbours.length <= 12}>
+              <ul className="queue-list">
+                {neighbours.map((n) => (
+                  <li key={n.id}>
+                    <button type="button" className="link-button" onClick={() => setSelected(n.id)}>
+                      {n.name}
+                    </button>{' '}
+                    <span className="muted small">{n.types.map((t) => data.labels[t] ?? t).join(', ')}</span>
+                  </li>
+                ))}
+              </ul>
+            </More>
+          )}
+        </Card>
+      )}
+    </>
   )
 }
 
@@ -79,13 +268,12 @@ function Browser() {
 
   return (
     <>
-      <div className="page-header">
-        <h1>Relationship browser</h1>
-        <p>
-          One page and the pages it is connected to: its place in the page tree (from LegendKeeper), its links and labelled fields, and relationships inferred from
-          wording. Click a neighbour to move to it. Incoming links are found by reading the pages audits have read, because LegendKeeper has no backlinks endpoint.
+      <More label="About this view">
+        <p className="small">
+          One page and the pages it is connected to: its place in the page tree (from LegendKeeper), its links and labelled fields, and relationships inferred from wording.
+          Click a neighbour to move to it. Incoming links are found by reading the pages audits have read, because LegendKeeper has no backlinks endpoint.
         </p>
-      </div>
+      </More>
       <Card title="Choose a page">
         <input className="inline-input" style={{ width: '100%' }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type a page name or alias" aria-label="Page name" />
         {suggestions.data && q.trim().length >= 2 && (

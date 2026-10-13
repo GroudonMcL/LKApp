@@ -73,3 +73,29 @@ describe('review queue for chronology and analysis', () => {
     expect(reviewQueue(ctx, { type: 'proposed_event' }).items.length).toBe(before.items.length - 1)
   })
 })
+
+describe('relationship map (many pages at once)', () => {
+  it('joins every page’s relationships into one graph, one edge per pair, around a page or for the whole project', async () => {
+    const { relationshipGraph } = await import('@/server/services/relationship-graph')
+    const ctx = await greyhawkContext()
+    const whole = relationshipGraph(ctx, 'proj_test', { wording: true })
+    const ids = new Set(whole.nodes.map((n) => n.id))
+    expect(ids.has(IDS.hommlet) && ids.has(IDS.battle) && ids.has(IDS.iuz)).toBe(true)
+    // Every edge joins two shown pages, and each pair appears once.
+    expect(whole.edges.every((e) => ids.has(e.source) && ids.has(e.target))).toBe(true)
+    const pairs = whole.edges.map((e) => [e.source, e.target].sort().join('|'))
+    expect(new Set(pairs).size).toBe(pairs.length)
+    // Hommlet ← battle: a link and a field ("located in"); the strongest support wins.
+    const edge = whole.edges.find((e) => [e.source, e.target].sort().join('|') === [IDS.hommlet, IDS.battle].sort().join('|'))!
+    expect(edge.support).toBe('field')
+    expect(edge.types.sort()).toEqual(['links_to', 'located_in'])
+
+    const around = relationshipGraph(ctx, 'proj_test', { centre: IDS.iuz, depth: 1, wording: true })
+    expect(around.nodes.find((n) => n.id === IDS.iuz)?.distance).toBe(0)
+    expect(around.nodes.every((n) => n.distance <= 1)).toBe(true)
+
+    const capped = relationshipGraph(ctx, 'proj_test', { maxNodes: 10, tree: true })
+    expect(capped.nodes.length).toBeLessThanOrEqual(10)
+    expect(() => relationshipGraph(ctx, 'proj_test', { centre: 'nope' })).toThrow(/not in the last project scan/)
+  })
+})
