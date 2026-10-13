@@ -42,6 +42,18 @@ How to sort:
 6. Mentions in passing (a monster named in a character's story) are not entries of their own.
 7. Use the source's own spelling for titles. Do not add facts.
 
+Example. Page kinds "k1: Statblock" and "k2: Character"; source lines:
+1| Home | Shop | Log in
+2| # Goblin
+3| Small Humanoid, Neutral Evil
+4| AC 15, HP 7
+5| # Mara the Smith
+6| Mara forges blades in Hommlet.
+7| Comments (2)
+8| Great article!
+Answer:
+{"entries":[{"title":"Goblin","kind":"k1","ranges":[{"from":2,"to":4}],"confidence":"high","why":"creature statblock"},{"title":"Mara the Smith","kind":"k2","ranges":[{"from":5,"to":6}],"confidence":"high","why":"a person"}],"discarded":[{"from":1,"to":1,"why":"site navigation"},{"from":7,"to":8,"why":"reader comments"}],"suspectedInstructions":[]}
+
 Respond only with the JSON object described by the output schema.`
 
 export interface SortKind {

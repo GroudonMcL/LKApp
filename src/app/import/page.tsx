@@ -2,133 +2,197 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, formatDate, statusTone, useAction, useApi } from '@/components/ui'
+import { useEffect, useRef, useState } from 'react'
+import { Badge, Button, Card, ErrorBox, Loading, More, Notice, formatDate, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
-import type { JobSummary } from '@/lib/types'
-import type { Recipe } from '@/core/recipe'
+import { ParentPicker } from '@/components/parent-picker'
 
-interface Chunk {
-  index: number
-  heading: string
-  chars: number
-  text: string
+interface DestinationRow {
+  key: string
+  label: string
+  pageType: string
+  pageTypeLabel: string
+  fields: string[]
+  sections: string[]
+  layout: 'exact' | 'fit' | 'custom' | 'own'
+  enabled: boolean
+  reason: string | null
+  lkTemplateId: string | null
+}
+interface Destinations {
+  destinations: DestinationRow[]
+  active: { key: string; label: string; builtIn: boolean }[]
+  usingBuiltIn: boolean
+}
+interface ImportRow {
+  id: string
+  name: string
+  status: string
+  createdAt: string
+  phase: string | null
+  created: number
+  toReview: number
+  total: number
 }
 
-export default function ImportStudio() {
+const ACCEPT = '.txt,.text,.md,.markdown,.json,.html,.htm,.docx,.pdf,.png,.jpg,.jpeg,.webp,.gif'
+const PARENT_KEY = 'lkc.import.parent'
+
+export default function ImportPage() {
   return (
     <>
       <div className="page-header">
-        <h1>Import studio</h1>
-        <p>
-          Bring in a file or pasted text, turn it into a draft page with a recipe, review and edit it, and only then — with your approval — create it in LegendKeeper. A single
-          import takes plain text, Markdown or JSON. For many files, PDF, Word, HTML or images, or a document holding many entries, use a batch import.
-        </p>
+        <h1>Import</h1>
+        <p className="lead">Add files, a saved web page or some text. The AI finds each subject worth a page, picks the right template for it and leaves out clutter. You see the result and choose what is created.</p>
       </div>
-      <Card title="Batch import" actions={<Link className="btn btn-primary" href="/batches/new">New batch import</Link>}>
-        <p>
-          Import many files — or one document with many entries (a bestiary chapter, a list of magic items) — in one job. Each entry becomes its own draft. You review them,
-          check for duplicates, do a dry run, approve the ones you want and run the batch. <Link href="/batches">See all batch jobs</Link>.
-        </p>
-      </Card>
       <NewImport />
       <RecentImports />
+      <PageKinds />
+      <More label="Other ways to import">
+        <ul className="small">
+          <li>
+            <Link href="/import/classic">Import with a recipe</Link>: one source, one page, with a recipe you choose.
+          </li>
+          <li>
+            <Link href="/batches/new">Batch import with a recipe</Link>: many records split by fixed rules (headings, statblocks, JSON).
+          </li>
+        </ul>
+      </More>
     </>
   )
 }
 
 function NewImport() {
   const router = useRouter()
-  const recipes = useApi<{ recipes: Recipe[] }>('/api/recipes')
   const create = useAction()
-  const splitter = useAction()
-  const [mode, setMode] = useState<'file' | 'paste'>('file')
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [text, setText] = useState('')
-  const [format, setFormat] = useState('')
+  const [showPaste, setShowPaste] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const [parent, setParent] = useState<{ id: string; name: string } | null>(null)
   const [name, setName] = useState('')
   const [attribution, setAttribution] = useState('')
   const [citation, setCitation] = useState('')
-  const [recipeId, setRecipeId] = useState('')
-  const [chunks, setChunks] = useState<Chunk[] | null>(null)
+  const [noAi, setNoAi] = useState(false)
+  const [progress, setProgress] = useState<string | null>(null)
+  const input = useRef<HTMLInputElement>(null)
 
-  const form = (override?: { text: string; name: string }) => {
-    const data = new FormData()
-    if (override) data.set('text', override.text)
-    else if (mode === 'file' && file) data.set('file', file)
-    else data.set('text', text)
-    if (format) data.set('format', format)
-    data.set('name', override?.name ?? name)
-    data.set('attributionTitle', attribution || (mode === 'file' && file ? file.name : ''))
-    data.set('citation', citation)
-    data.set('recipeId', recipeId)
-    return data
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(PARENT_KEY)
+      if (saved) setParent(JSON.parse(saved) as { id: string; name: string })
+    } catch {
+      /* no saved choice */
+    }
+  }, [])
+  const chooseParent = (value: { id: string; name: string } | null) => {
+    setParent(value)
+    try {
+      if (value) window.localStorage.setItem(PARENT_KEY, JSON.stringify(value))
+      else window.localStorage.removeItem(PARENT_KEY)
+    } catch {
+      /* not remembered */
+    }
   }
 
-  const submit = (override?: { text: string; name: string }) =>
-    create.run(async () => {
-      const job = await api.upload<{ id: string }>('/api/imports', form(override))
-      router.push(`/import/${job.id}`)
-    })
+  const add = (list: FileList | null) => {
+    if (!list) return
+    setFiles((current) => [...current, ...Array.from(list)].slice(0, 100))
+  }
 
-  const tooLong = create.error?.code === 'TOO_LONG'
+  const start = () =>
+    create.run(async () => {
+      setProgress('Starting…')
+      const created = await api.post<{ batch: { id: string } }>('/api/smart-imports', {
+        name: name.trim() || undefined,
+        mode: noAi ? 'rules' : 'ai',
+        parentId: parent?.id ?? null,
+        attributionTitle: attribution.trim() || null,
+        citation: citation.trim() || null,
+      })
+      const id = created.batch.id
+      for (const [i, file] of files.entries()) {
+        setProgress(`Reading ${file.name} (${i + 1} of ${files.length})…`)
+        const form = new FormData()
+        form.set('file', file)
+        await api.upload(`/api/batches/${id}/sources`, form)
+      }
+      if (text.trim()) {
+        const form = new FormData()
+        form.set('text', text)
+        form.set('name', name.trim() || 'Pasted text')
+        await api.upload(`/api/batches/${id}/sources`, form)
+      }
+      await api.post(`/api/smart-imports/${id}/actions`, { action: 'start', mode: noAi ? 'rules' : 'ai' })
+      router.push(`/import/run/${id}`)
+    }).finally(() => setProgress(null))
+
+  const ready = files.length > 0 || text.trim() !== ''
 
   return (
     <Card title="New import">
-      <div className="tabs" role="tablist">
-        <button role="tab" aria-selected={mode === 'file'} onClick={() => setMode('file')}>
-          Upload a file
-        </button>
-        <button role="tab" aria-selected={mode === 'paste'} onClick={() => setMode('paste')}>
-          Paste text
-        </button>
-      </div>
-      <form
-        onSubmit={(e) => {
+      <div
+        className={`drop-zone${dragging ? ' dragging' : ''}`}
+        role="button"
+        tabIndex={0}
+        onClick={() => input.current?.click()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') input.current?.click()
+        }}
+        onDragOver={(e) => {
           e.preventDefault()
-          setChunks(null)
-          void submit()
+          setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragging(false)
+          add(e.dataTransfer.files)
         }}
       >
-        {mode === 'file' ? (
-          <div className="field">
-            <label htmlFor="file">File (.txt, .md or .json)</label>
-            <input id="file" type="file" accept=".txt,.text,.md,.markdown,.json,text/plain,text/markdown,application/json" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          </div>
-        ) : (
-          <div className="field">
-            <label htmlFor="text">Text</label>
-            <textarea id="text" value={text} onChange={(e) => setText(e.target.value)} rows={10} className="mono" />
-            <div className="row" style={{ marginTop: '0.4rem' }}>
-              <label htmlFor="format" style={{ margin: 0 }}>
-                Format
-              </label>
-              <select id="format" value={format} onChange={(e) => setFormat(e.target.value)} style={{ width: 'auto' }}>
-                <option value="">Detect automatically</option>
-                <option value="text">Plain text</option>
-                <option value="markdown">Markdown</option>
-                <option value="json">JSON</option>
-              </select>
-            </div>
-          </div>
-        )}
+        <strong>Drop files here, or click to choose</strong>
+        <div className="small muted">Text, Markdown, JSON, saved web pages (.html), Word (.docx), PDF and images</div>
+        <input ref={input} type="file" multiple accept={ACCEPT} onChange={(e) => add(e.target.files)} />
+      </div>
+      {files.length > 0 && (
+        <ul className="file-list">
+          {files.map((file, i) => (
+            <li key={`${file.name}-${i}`}>
+              <Badge>
+                {file.name}{' '}
+                <button type="button" className="link-button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}>
+                  ×
+                </button>
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
+      {showPaste ? (
+        <div className="field" style={{ marginTop: '0.75rem' }}>
+          <label htmlFor="paste">Text</label>
+          <textarea id="paste" rows={8} value={text} onChange={(e) => setText(e.target.value)} placeholder="Paste a statblock, notes, or a whole article…" />
+        </div>
+      ) : (
+        <p>
+          <button type="button" className="link-button" onClick={() => setShowPaste(true)}>
+            Or paste text
+          </button>
+        </p>
+      )}
+
+      <div className="field" style={{ marginTop: '0.75rem' }}>
+        <label>
+          Put new pages under <span className="hint">(optional; without a parent, pages go at the top of the project, which needs an Admin key)</span>
+        </label>
+        <ParentPicker value={parent} onChange={chooseParent} />
+      </div>
+
+      <More label="More options">
         <div className="grid grid-2">
           <div className="field">
-            <label htmlFor="name">
-              Job name <span className="hint">(optional — defaults to the title found in the source)</span>
-            </label>
-            <input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="recipe">Recipe</label>
-            <select id="recipe" value={recipeId} onChange={(e) => setRecipeId(e.target.value)}>
-              <option value="">Choose later</option>
-              {recipes.data?.recipes.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.definition.name}
-                </option>
-              ))}
-            </select>
+            <label htmlFor="name">Name of this import</label>
+            <input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Defaults to the first file’s name" />
           </div>
           <div className="field">
             <label htmlFor="attribution">
@@ -143,103 +207,133 @@ function NewImport() {
             <input id="citation" type="text" value={citation} onChange={(e) => setCitation(e.target.value)} />
           </div>
         </div>
+        <label className="check">
+          <input type="checkbox" checked={noAi} onChange={(e) => setNoAi(e.target.checked)} />
+          <span>
+            Without AI <span className="muted small">(split by headings or statblocks, fill fields from “Label: value” lines; nothing is sent anywhere)</span>
+          </span>
+        </label>
         <p className="small muted">
-          Creating an import stores the source on this computer only while you review it. Nothing is sent to the AI until you run a transformation.
+          With AI, the text is sent to your configured AI provider (on OpenRouter, free models only): once to sort it, then once per page found. Nothing is written to LegendKeeper until you choose
+          which pages to create.
         </p>
-        <Button type="submit" variant="primary" busy={create.busy} disabled={mode === 'file' ? !file : !text.trim()}>
-          Create import
+      </More>
+
+      <div className="row" style={{ marginTop: '0.75rem' }}>
+        <Button variant="primary" busy={create.busy} disabled={!ready} onClick={() => void start()}>
+          Import
         </Button>
-      </form>
-      <ErrorBox error={create.error} title="The source could not be imported" />
-      {tooLong && (
-        <Notice tone="info">
-          <p>Long sources are not cut short. Split it into sections and import one section at a time:</p>
-          <Button busy={splitter.busy} onClick={() => splitter.run(async () => setChunks((await api.upload<{ chunks: Chunk[] }>('/api/imports/split', form())).chunks))}>
-            Split source
-          </Button>
-        </Notice>
-      )}
-      <ErrorBox error={splitter.error} />
-      {chunks && (
-        <div className="table-wrap">
-          <p>
-            {chunks.length} sections. Joined together they are exactly the original source. Import the one you want to work on:
-          </p>
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Starts with</th>
-                <th>Characters</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {chunks.map((chunk) => (
-                <tr key={chunk.index}>
-                  <td>{chunk.index + 1}</td>
-                  <td>{chunk.heading}</td>
-                  <td>{chunk.chars.toLocaleString('en-GB')}</td>
-                  <td>
-                    <Button onClick={() => submit({ text: chunk.text, name: `${name || attribution || file?.name || 'Source'} — part ${chunk.index + 1}: ${chunk.heading}`.slice(0, 200) })}>Import this section</Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+        {progress && <span className="muted small">{progress}</span>}
+      </div>
+      <ErrorBox error={create.error} title="The import could not start" />
     </Card>
   )
 }
 
 function RecentImports() {
-  const { data, error, loading } = useApi<{ items: JobSummary[]; total: number }>('/api/imports?pageSize=50')
+  const { data, error } = useApi<{ imports: ImportRow[] }>('/api/smart-imports')
+  if (error) return <ErrorBox error={error} />
+  if (!data || data.imports.length === 0) return null
+  const open = data.imports.filter((row) => row.status !== 'completed' && row.status !== 'cancelled')
+  const done = data.imports.filter((row) => row.status === 'completed' || row.status === 'cancelled')
+  const list = (rows: ImportRow[]) => (
+    <ul className="queue-list">
+      {rows.map((row) => (
+        <li key={row.id} className="row">
+          <Link href={`/import/run/${row.id}`}>{row.name}</Link>
+          {row.phase ? <Badge tone="info">{row.phase}</Badge> : row.toReview > 0 ? <Badge tone="warn">{row.toReview} to look at</Badge> : null}
+          {row.created > 0 && <Badge tone="good">{row.created} created</Badge>}
+          <span className="spacer" />
+          <span className="muted small">{formatDate(row.createdAt)}</span>
+        </li>
+      ))}
+    </ul>
+  )
   return (
-    <Card title="Imports">
+    <Card title="Your imports">
+      {open.length ? list(open) : <p className="muted">Nothing in progress.</p>}
+      {done.length > 0 && <More label={`Finished (${done.length})`}>{list(done)}</More>}
+    </Card>
+  )
+}
+
+function PageKinds() {
+  const { data, error, loading, reload, setData } = useApi<Destinations>('/api/destinations')
+  const setup = useAction()
+  const toggle = useAction()
+  const [report, setReport] = useState<{ added: DestinationRow[]; skipped: { name: string; reason: string }[] } | null>(null)
+  const runSetup = () =>
+    setup.run(async () => {
+      const result = await api.post<{ added: DestinationRow[]; skipped: { name: string; reason: string }[] }>('/api/destinations', { action: 'setup' })
+      setReport(result)
+      await reload()
+    })
+  const summary = data ? (data.usingBuiltIn ? 'built-in page types' : data.destinations.filter((d) => d.enabled).map((d) => d.label).join(', ')) : ''
+  return (
+    <Card title="Page kinds" actions={<Button busy={setup.busy} onClick={() => void runSetup()}>Set up from my LegendKeeper templates</Button>}>
+      {loading && !data && <Loading />}
       <ErrorBox error={error} />
-      {loading && <Loading />}
-      {data && data.items.length === 0 && <Empty title="No imports yet">Create one above.</Empty>}
-      {data && data.items.length > 0 && (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Import</th>
-                <th>Status</th>
-                <th>Draft</th>
-                <th>Source</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((job) => (
-                <tr key={job.id}>
-                  <td>
-                    <Link href={`/import/${job.id}`}>{job.name}</Link>
-                  </td>
-                  <td>
-                    <Badge tone={statusTone(job.status)}>{job.status}</Badge>
-                  </td>
-                  <td>
-                    {job.draft ? (
-                      <>
-                        <Badge tone={statusTone(job.draft.status)}>{job.draft.status}</Badge>{' '}
-                        {job.draft.createdResourceId && <Link href={`/pages/${job.draft.createdResourceId}`}>open page</Link>}
-                      </>
-                    ) : (
-                      <span className="muted">—</span>
-                    )}
-                  </td>
-                  <td className="small">
-                    {job.sourceKind} · {job.sourceFormat} · {(job.sourceSize / 1024).toFixed(1)} KB
-                  </td>
-                  <td className="small nowrap">{formatDate(job.createdAt)}</td>
-                </tr>
+      <ErrorBox error={setup.error} title="Templates could not be read" />
+      {data && (
+        <p>
+          The AI chooses between: <strong>{summary || 'none'}</strong>.
+        </p>
+      )}
+      {data?.usingBuiltIn && <Notice tone="info">Set up page kinds from your LegendKeeper templates so new pages are real copies of them, filled in place. Reading the templates changes nothing in LegendKeeper.</Notice>}
+      {report && (
+        <Notice tone={report.skipped.length ? 'warning' : 'success'}>
+          {report.added.length ? `Added: ${report.added.map((d) => d.label).join(', ')}.` : 'No new templates found.'}
+          {report.skipped.length > 0 && (
+            <ul>
+              {report.skipped.map((s) => (
+                <li key={s.name}>
+                  {s.name}: {s.reason}
+                </li>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </ul>
+          )}
+        </Notice>
+      )}
+      {data && data.destinations.length > 0 && (
+        <More label="Show the page kinds">
+          <ErrorBox error={toggle.error} />
+          <ul className="page-list">
+            {data.destinations.map((d) => (
+              <li key={d.key} className="page-row">
+                <div className="page-row-head">
+                  <label className="check" style={{ margin: 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={d.enabled}
+                      disabled={toggle.busy}
+                      onChange={(e) =>
+                        void toggle.run(async () => {
+                          const next = await api.post<{ destinations: DestinationRow[] }>('/api/destinations', { action: 'enable', key: d.key, enabled: e.target.checked })
+                          setData({ ...data, destinations: next.destinations, usingBuiltIn: !next.destinations.some((x) => x.enabled) })
+                        })
+                      }
+                    />
+                    <span className="page-row-title">{d.label}</span>
+                  </label>
+                  <Badge>{d.pageTypeLabel}</Badge>
+                  <Badge tone="info">{d.layout === 'exact' ? 'exactly as the template' : d.layout === 'fit' ? 'fitted to each page' : d.layout === 'custom' ? 'own layout rules' : 'app layout'}</Badge>
+                  <Link className="small" href="/recipes">
+                    change
+                  </Link>
+                </div>
+                <More label="Details">
+                  <p className="small">
+                    <strong>Fields:</strong> {d.fields.join(', ') || '—'}
+                  </p>
+                  <p className="small">
+                    <strong>Boxes:</strong> {d.sections.join(', ') || '—'}
+                  </p>
+                  {d.reason && <p className="small muted">{d.reason}</p>}
+                </More>
+              </li>
+            ))}
+          </ul>
+        </More>
       )}
     </Card>
   )

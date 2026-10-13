@@ -139,9 +139,10 @@ export function applySort(lines: NumberedLine[], parts: { entries: RawEntry[]; d
     }
   }
   const entries: SortedEntry[] = []
-  for (const key of order) {
+  const claimed = order.map((key) => cleanRanges(byKey.get(key)!.ranges, lines.length))
+  for (const [index, key] of order.entries()) {
     const raw = byKey.get(key)!
-    const ranges = cleanRanges(raw.ranges, lines.length)
+    const ranges = withHeadings(lines, claimed[index]!, claimed.filter((_, i) => i !== index).flat())
     const text = textOf(lines, ranges)
     if (!text) {
       notes.push(`“${raw.title}” had no lines of the source, so it was left out.`)
@@ -189,6 +190,45 @@ export function applySort(lines: NumberedLine[], parts: { entries: RawEntry[]; d
     }
   }
   return { entries, discarded, unplaced, notes }
+}
+
+const isHeadingLine = (text: string) => /^#{1,6}\s+\S/.test(text.trim()) || /^(\*\*|__)[^*_]{2,60}(\*\*|__):?$/.test(text.trim())
+
+/**
+ * An entry keeps the headings inside it and just before it, even when the AI's line numbers
+ * skip them: two of its ranges separated only by headings and blank lines are joined, and a
+ * heading right before a range (with no other entry's lines between) is included. Headings such
+ * as "Secrets" matter: they say which text players must not see.
+ */
+export function withHeadings(lines: NumberedLine[], ranges: Range[], others: Range[]): Range[] {
+  if (!ranges.length) return ranges
+  const taken = (n: number) => others.some((r) => n >= r.from && n <= r.to)
+  const filler = (n: number) => {
+    const text = lines[n - 1]?.text ?? ''
+    return !taken(n) && (text.trim() === '' || isHeadingLine(text))
+  }
+  const out: Range[] = []
+  for (const range of ranges) {
+    const last = out[out.length - 1]
+    if (last) {
+      let gapFiller = true
+      for (let n = last.to + 1; n < range.from; n++) if (!filler(n)) gapFiller = false
+      if (gapFiller) {
+        last.to = Math.max(last.to, range.to)
+        continue
+      }
+    }
+    out.push({ ...range })
+  }
+  // A part that starts with text takes in its own heading (the nearest one just before it); a
+  // part that starts with a heading already has it, and the headings above it are its parents'.
+  for (const range of out) {
+    if (isHeadingLine(lines[range.from - 1]!.text)) continue
+    let n = range.from - 1
+    while (n >= 1 && !taken(n) && lines[n - 1]!.text.trim() === '') n--
+    if (n >= 1 && !taken(n) && isHeadingLine(lines[n - 1]!.text)) range.from = n
+  }
+  return cleanRanges(out, lines.length)
 }
 
 /** The text of some lines of the source (for an unplaced part made into a page). */

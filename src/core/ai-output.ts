@@ -101,6 +101,9 @@ export function mapAiOutputToDraft(output: AiDraftOutput, ctx: DraftContext, met
       kind: section.kind,
       paragraphs: section.paragraphs.filter((p) => p.trim() !== ''),
     }))
+  // A lone heading repeating the page's own name is not unsorted content.
+  const name0 = (output.pageName.trim() || ctx.sourceTitle || '').toLowerCase()
+  for (let i = unmapped.length - 1; i >= 0; i--) if (unmapped[i]!.replace(/^#+\s*/, '').trim().toLowerCase() === name0) unmapped.splice(i, 1)
   if (unmapped.some((p) => p.trim() !== '')) {
     sections.push({ id: sectionId(), heading: 'Unsorted source material', kind: 'unmapped', paragraphs: unmapped.filter((p) => p.trim() !== '') })
   }

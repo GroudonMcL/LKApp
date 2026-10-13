@@ -3,8 +3,8 @@ import { destinationLabel, destinationType, withExtraFields } from '@/core/desti
 import { EXAMPLE_RECIPES, RecipeDefinition, type Recipe } from '@/core/recipe'
 import { resolvePageType } from '@/core/resolve'
 import { LAYOUT_PRESETS, type PageTemplate } from '@/core/template'
-import { BUILT_IN_PAGE_TYPES, findBuiltInPageType } from '@/core/page-types'
-import { skeletonFromBlocks } from '@/core/lk-layout'
+import { BUILT_IN_PAGE_TYPES, findBuiltInPageType, type PageTypeDefinition } from '@/core/page-types'
+import { skeletonFromBlocks, summarizeLayout } from '@/core/lk-layout'
 import type { AppContext } from '../context'
 import { toConnectorError } from '../lk/errors'
 import { recordAudit } from './audit'
@@ -174,7 +174,7 @@ async function setUpOne(ctx: AppContext, lk: { id: string; name: string }, usedT
     const builtIn = findBuiltInPageType(local.definition.pageType)
     if (builtIn) {
       const type = withExtraFields(builtIn, blocks)
-      const recipe = createRecipe(ctx, importRecipe(ctx, label, description, type.pageType.id, local.id, { extraFields: type.extraFields }))
+      const recipe = createRecipe(ctx, importRecipe(ctx, label, description, type.pageType.id, local.id, { extraFields: type.extraFields, ...onlyTemplateFields(type.pageType, blocks, local.definition.layoutRules.additions) }))
       return { templateId: local.id, recipeId: recipe.id, enabled: true, reason: 'Uses the copy of this template you already made, with its layout rules.' }
     }
     const own = ctx.repos.recipes.list().find((r) => r.definition.templateId === local.id && r.definition.customPageType?.id === local.definition.pageType)
@@ -194,8 +194,19 @@ async function setUpOne(ctx: AppContext, lk: { id: string; name: string }, usedT
     return { templateId: template.id, recipeId: recipe.id, enabled: true, reason: type.reason }
   }
   const { template } = await copyLayout(ctx, { resource: lk.id, pageType: { ...type.pageType, fields: [...type.pageType.fields, ...type.extraFields] }, name: `${label} (from LegendKeeper)`, layoutRules: rules })
-  const recipe = createRecipe(ctx, importRecipe(ctx, label, description, type.pageType.id, template.id, { extraFields: type.extraFields }))
+  const recipe = createRecipe(ctx, importRecipe(ctx, label, description, type.pageType.id, template.id, { extraFields: type.extraFields, ...onlyTemplateFields(type.pageType, blocks, rules.additions) }))
   return { templateId: template.id, recipeId: recipe.id, enabled: true, reason: type.reason }
+}
+
+/**
+ * A template followed exactly adds no fields of its own, so the AI is offered only the fields
+ * the template has a row for (the page type's others would only be left out of the page). The
+ * page type keeps its id; only this recipe sees the shorter field list.
+ */
+function onlyTemplateFields(type: PageTypeDefinition, blocks: Record<string, unknown>[], additions: 'add' | 'none'): Partial<RecipeDefinition> {
+  if (additions !== 'none') return {}
+  const covered = new Set(summarizeLayout(blocks, type).rows.flatMap((row) => row.fieldKeys))
+  return { customPageType: { ...type, builtIn: false, fields: type.fields.filter((field) => covered.has(field.key)) } }
 }
 
 function importRecipe(ctx: AppContext, label: string, description: string, pageType: string, templateId: string | null, extra: Partial<RecipeDefinition>) {
@@ -208,6 +219,8 @@ function importRecipe(ctx: AppContext, label: string, description: string, pageT
     templateId,
     allowCreate: true,
     placement: 'alphabetical',
+    // Sources from other editions often lack a statistic; nothing blocks the page for that.
+    requiredFields: [],
     ...extra,
   })
 }

@@ -112,6 +112,16 @@ export function KeyValue({ rows }: { rows: [string, ReactNode][] }) {
   )
 }
 
+/** Extra detail, hidden until you open it (“More information”). */
+export function More({ label = 'More information', children, open, className }: { label?: ReactNode; children: ReactNode; open?: boolean; className?: string }) {
+  return (
+    <details className={`more${className ? ` ${className}` : ''}`} open={open}>
+      <summary>{label}</summary>
+      <div className="more-body">{children}</div>
+    </details>
+  )
+}
+
 export function JsonView({ value, label = 'Show JSON' }: { value: unknown; label?: string }) {
   return (
     <details className="json">

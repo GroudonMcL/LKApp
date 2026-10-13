@@ -284,3 +284,26 @@ describe('the import (sort, draft, check, create)', () => {
     expect(smartView(ctx, failing.batch.id).batch.error).toMatch(/free-model limit/)
   })
 })
+
+describe('headings the AI left out of an entry', () => {
+  it('are kept: between two of its parts, and just before it', () => {
+    const text = ['## Mother Sallow', 'An herbalist.', '', '### Secrets', '', 'She fled the coven.', '## Goblin', 'AC 15'].join('\n')
+    const lines = numberLines(text)
+    const result = applySort(
+      lines,
+      [
+        {
+          entries: [
+            { title: 'Mother Sallow', kind: 'k1', ranges: [{ from: 2, to: 2 }, { from: 6, to: 6 }], confidence: 'high', why: '' },
+            { title: 'Goblin', kind: 'k1', ranges: [{ from: 8, to: 8 }], confidence: 'high', why: '' },
+          ],
+          discarded: [{ from: 4, to: 4, why: 'heading' }],
+        },
+      ],
+      new Map([['k1', 'x']]),
+    )
+    expect(result.entries[0]!.text).toBe('## Mother Sallow\nAn herbalist.\n\n### Secrets\n\nShe fled the coven.')
+    expect(result.entries[1]!.text).toBe('## Goblin\nAC 15')
+    expect(result.discarded).toEqual([])
+  })
+})

@@ -38,7 +38,7 @@ export function extractSource(input: SourceInput, limits: ExtractionLimits): Ext
   )
   if (unsupported) {
     throw new ExtractionError(
-      `${unsupported.label} cannot be read by a single import. Use Batch import (Import studio → New batch import), which reads PDF, Word (.docx), HTML and images — or paste the text.`,
+      `${unsupported.label} cannot be read by a single import. Use Import, which reads PDF, Word (.docx), HTML and images — or paste the text.`,
       'UNSUPPORTED_TYPE',
     )
   }

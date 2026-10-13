@@ -42,7 +42,7 @@ const RunInput = z.object({
 const HANDOFF: Record<string, { label: string; href: string }> = {
   tagging: { label: 'Tagging assistant', href: '/tagging' },
   migration: { label: 'Template migration', href: '/migrations' },
-  import: { label: 'Import studio', href: '/import' },
+  import: { label: 'Import', href: '/import' },
   timeline: { label: 'Chronology (add an event to a timeline)', href: '/chronology' },
   health: { label: 'Wiki Health', href: '/health' },
 }

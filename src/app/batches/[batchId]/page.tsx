@@ -32,6 +32,12 @@ export default function BatchPage({ params }: { params: Promise<{ batchId: strin
   const [acknowledge, setAcknowledge] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
+  // A sorted import has its own, simpler screen (this detailed view stays reachable with ?classic=1).
+  const smart = Boolean((data?.batch.options as { smart?: unknown } | undefined)?.smart) && !data?.recipe
+  useEffect(() => {
+    if (smart && !window.location.search.includes('classic=1')) window.location.replace(`/import/run/${batchId}`)
+  }, [smart, batchId])
+
   const busy = data ? data.phase !== null || data.batch.status === 'processing' || data.batch.status === 'running' : false
   const wasBusy = useRef(false)
   useEffect(() => {

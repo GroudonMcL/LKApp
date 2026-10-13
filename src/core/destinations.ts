@@ -55,7 +55,7 @@ function rowLabels(blocks: AnyBlock[]): string[] {
     .rows.map((row) => row.key.trim())
     .filter((key) => {
       const norm = key.toLowerCase()
-      if (!key || seen.has(norm) || /^(tags?|aliases?)$/i.test(key)) return false
+      if (!key || seen.has(norm) || /^(tags?|aliases?|sources?):?$/i.test(key)) return false
       seen.add(norm)
       return true
     })

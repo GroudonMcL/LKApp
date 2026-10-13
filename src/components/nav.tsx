@@ -5,22 +5,22 @@ import { usePathname } from 'next/navigation'
 
 const LINKS = [
   { href: '/', label: 'Dashboard' },
+  { href: '/import', label: 'Import' },
   { href: '/review', label: 'Review queue' },
   { href: '/assistant', label: 'Task Assistant' },
-  { href: '/connection', label: 'Connection' },
-  { href: '/pages', label: 'Page browser' },
   { href: '/search', label: 'Search' },
+  { href: '/pages', label: 'Page browser' },
   { href: '/relationships', label: 'Relationships' },
-  { href: '/import', label: 'Import studio' },
-  { href: '/batches', label: 'Batch jobs' },
-  { href: '/recipes', label: 'Recipes & templates' },
   { href: '/health', label: 'Wiki Health' },
+  { href: '/tagging', label: 'Tagging assistant' },
+  { href: '/tags', label: 'Tag audit' },
   { href: '/chronology', label: 'Chronology' },
   { href: '/knowledge', label: 'Knowledge analysis' },
-  { href: '/tagging', label: 'Tagging assistant' },
   { href: '/migrations', label: 'Template migration' },
-  { href: '/tags', label: 'Tag audit' },
+  { href: '/recipes', label: 'Recipes & templates' },
+  { href: '/batches', label: 'Batch jobs' },
   { href: '/history', label: 'History & audit' },
+  { href: '/connection', label: 'Connection' },
   { href: '/settings', label: 'Settings' },
 ]
 
@@ -34,7 +34,7 @@ export function Nav() {
         </span>
         <div>
           <strong>LK Companion</strong>
-          <div className="muted small">Phase 3 · local only</div>
+          <div className="muted small">Runs on this computer</div>
         </div>
       </div>
       <ul>

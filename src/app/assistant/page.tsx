@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
-import { Badge, Button, Card, ErrorBox, Notice, useAction, useApi } from '@/components/ui'
+import { useEffect, useState } from 'react'
+import { Badge, Button, Card, ErrorBox, More, Notice, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 
 interface PlanStep {
@@ -69,6 +69,14 @@ export default function AssistantPage() {
       setConfirmAi(false)
       setView(await api.post<PlanView>('/api/assistant', { action: 'plan', request, useAi }))
     })
+  // Opened from the dashboard with a request: plan it straight away (without AI).
+  useEffect(() => {
+    const task = new URLSearchParams(window.location.search).get('task')?.trim()
+    if (!task || task.length < 3) return
+    setRequest(task)
+    void action.run(async () => setView(await api.post<PlanView>('/api/assistant', { action: 'plan', request: task, useAi: false })))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const unresolved = view?.pendingChoices?.filter((p) => !choices[p.asWritten]) ?? []
   const runnable = view?.recognised && view.plan && view.plan.steps.length > 0 && unresolved.length === 0 && (!view.needsAi || confirmAi)
 
@@ -76,11 +84,14 @@ export default function AssistantPage() {
     <>
       <div className="page-header">
         <h1>Task Assistant</h1>
-        <p>
-          Describe a maintenance task in ordinary words. The assistant turns it into a plan made only of the app&apos;s own operations (find pages, list events, report
-          references, run analyses…), shows it to you, and runs it. It never writes to LegendKeeper: for changes it points you to the tool that makes them with a final
-          preview and your approval. The AI is not needed for the requests below; it is used only when you choose it.
-        </p>
+        <p className="lead">Describe a task in ordinary words; the assistant makes a plan from the app&apos;s own operations, shows it, and runs it when you say so.</p>
+        <More>
+          <p className="small">
+            Plans are made only of the app&apos;s own operations (find pages, list events, report references, run analyses…). The assistant never writes to LegendKeeper: for
+            changes it points you to the tool that makes them with a final preview and your approval. The AI is not needed for the example requests; it is used only when you
+            choose it.
+          </p>
+        </More>
       </div>
       <Card title="Your request">
         <textarea className="inline-input" rows={3} style={{ width: '100%' }} value={request} onChange={(e) => setRequest(e.target.value)} placeholder="e.g. Find all untagged NPC pages in Saltreach" maxLength={1000} />

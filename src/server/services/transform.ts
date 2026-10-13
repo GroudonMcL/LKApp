@@ -5,6 +5,7 @@ import { newAppId } from '@/core/ids'
 import { resolveReferences } from '@/core/references'
 import { resolvePageType, resolveTemplate } from '@/core/resolve'
 import { buildStructuralDraft } from '@/core/structural'
+import { protectSecrets } from '@/core/secrets'
 import { suggestTags } from '@/core/tagging'
 import { AiDraftOutput } from '@/core/ai-output'
 import { sha256Hex, stableStringify } from '../hash'
@@ -182,7 +183,8 @@ export async function runTransform(ctx: AppContext, jobId: string, options: Tran
   }
 
   // Stage B: defaults, tags, links, validation.
-  const page = applyDefaultValues(result.page, recipe.definition)
+  // What the source marks as secret stays in the Secrets section, whatever the AI did with it.
+  const page = protectSecrets(applyDefaultValues(result.page, recipe.definition), job.sourceText).page
   if (options.parentId !== undefined) page.parentId = options.parentId
   page.tags = suggestTags(result.tagCandidates, tagInfo.tags, recipe.definition.tagPolicy)
   if (tagInfo.source === 'none') {

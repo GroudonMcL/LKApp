@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
-import { Badge, Button, Card, Empty, ErrorBox, Loading, Notice, useAction, useApi } from '@/components/ui'
+import { useEffect, useMemo, useState } from 'react'
+import { Badge, Button, Card, Empty, ErrorBox, Loading, More, Notice, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 
 interface Result {
@@ -32,6 +32,8 @@ const FIELDS: { key: string; label: string; placeholder?: string; type?: 'select
   { key: 'read', label: 'Content read', type: 'select', options: ['', 'read', 'unread'] },
 ]
 
+const MAIN_FIELDS = ['q', 'kind', 'tags', 'text']
+
 export default function SearchPage() {
   const [form, setForm] = useState<Record<string, string>>({})
   const [submitted, setSubmitted] = useState<Record<string, string> | null>(null)
@@ -47,14 +49,36 @@ export default function SearchPage() {
   const action = useAction()
   const [saveName, setSaveName] = useState('')
   const query = () => ({ ...form, ...(untagged ? { untagged: 'true' } : {}) })
+  const renderField = (f: (typeof FIELDS)[number]) => (
+    <label key={f.key}>
+      {f.label}
+      {f.type === 'select' ? (
+        <select value={form[f.key] ?? ''} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}>
+          {f.options!.map((o) => (
+            <option key={o} value={o}>
+              {o || '—'}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input value={form[f.key] ?? ''} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} />
+      )}
+    </label>
+  )
+  // Opened from the dashboard with a search: run it straight away.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('q')?.trim()
+    if (!q) return
+    setForm({ q })
+    setSubmitted({ q })
+  }, [])
 
   return (
     <>
       <div className="page-header">
         <h1>Search</h1>
-        <p>
-          Combine filters on names, kinds, tags, folders, page text, fields, dates, links and open findings. Searches the local index and the content audits read;
-          nothing is sent anywhere. For LegendKeeper&apos;s own full-text search, use the <Link href="/pages">Page browser</Link>.
+        <p className="lead">
+          Searches the local index and the content audits read; nothing is sent anywhere. For LegendKeeper&apos;s own full-text search, use the <Link href="/pages">Page browser</Link>.
         </p>
       </div>
       <Card title="Filters">
@@ -64,27 +88,15 @@ export default function SearchPage() {
             setSubmitted(query())
           }}
         >
-          <div className="filter-grid">
-            {FIELDS.map((f) => (
-              <label key={f.key}>
-                {f.label}
-                {f.type === 'select' ? (
-                  <select value={form[f.key] ?? ''} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}>
-                    {f.options!.map((o) => (
-                      <option key={o} value={o}>
-                        {o || '—'}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input value={form[f.key] ?? ''} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} />
-                )}
+          <div className="filter-grid">{FIELDS.filter((f) => MAIN_FIELDS.includes(f.key)).map(renderField)}</div>
+          <More label="More filters" open={FIELDS.some((f) => !MAIN_FIELDS.includes(f.key) && form[f.key]) || untagged}>
+            <div className="filter-grid">
+              {FIELDS.filter((f) => !MAIN_FIELDS.includes(f.key)).map(renderField)}
+              <label className="check">
+                <input type="checkbox" checked={untagged} onChange={(e) => setUntagged(e.target.checked)} /> Untagged only
               </label>
-            ))}
-            <label className="check">
-              <input type="checkbox" checked={untagged} onChange={(e) => setUntagged(e.target.checked)} /> Untagged only
-            </label>
-          </div>
+            </div>
+          </More>
           <div className="row">
             <Button type="submit" variant="primary">
               Search

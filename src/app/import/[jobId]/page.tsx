@@ -53,7 +53,7 @@ export default function ImportJobPage({ params }: { params: Promise<{ jobId: str
     <>
       <div className="page-header">
         <p>
-          {job.batchId ? <Link href={`/batches/${job.batchId}`}>← Back to the batch</Link> : <Link href="/import">← Import studio</Link>}
+          {job.batchId ? <Link href={`/batches/${job.batchId}`}>← Back to the batch</Link> : <Link href="/import">← Import</Link>}
           {job.recordMeta && (
             <span className="small muted">
               {' '}

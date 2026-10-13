@@ -238,6 +238,7 @@ async function sortWithAi(ctx: AppContext, batchId: string, source: BatchSource,
   const chunks = sortChunks(lines, SORT_CHUNK_CHARS)
   const parts: SortSourceOutput[] = []
   let requests = 0
+  let empty = 0
   for (const [i, chunk] of chunks.entries()) {
     if (chunks.length > 1) setPhase(batchId, `sorting part ${i + 1} of ${chunks.length}`)
     const user = sortUserPrompt({ sourceName: source.title ?? source.fileName ?? 'Source', kinds, lines: chunk, part: chunks.length > 1 ? { index: i + 1, of: chunks.length } : undefined })
@@ -249,17 +250,33 @@ async function sortWithAi(ctx: AppContext, batchId: string, source: BatchSource,
       parts.push(parsed.data)
       continue
     }
-    try {
-      const response = await provider.analyse('sort_source', user)
-      requests++
-      ctx.repos.aiCache.set(key, 'sort', response.output, response.servedByModel, response.inputTokens, response.outputTokens)
-      const totals = ctx.repos.batchSources.get(source.id)
-      ctx.repos.batchSources.update(source.id, { inputTokens: (totals?.inputTokens ?? 0) + (response.inputTokens ?? 0), outputTokens: (totals?.outputTokens ?? 0) + (response.outputTokens ?? 0) })
-      parts.push(response.output)
-    } catch (error) {
-      if (error instanceof AiError) throw new Error(error.message)
-      throw error
+    // Free models sometimes answer with no entries at all; one more try, with a nudge.
+    let output: SortSourceOutput | null = null
+    for (const attempt of [1, 2]) {
+      const prompt = attempt === 1 ? user : `${user}\n\nNote: an earlier answer listed no entries at all. Read the source again: list every subject that deserves a page, and the clutter to leave out.`
+      try {
+        const response = await provider.analyse('sort_source', prompt)
+        requests++
+        const totals = ctx.repos.batchSources.get(source.id)
+        ctx.repos.batchSources.update(source.id, { inputTokens: (totals?.inputTokens ?? 0) + (response.inputTokens ?? 0), outputTokens: (totals?.outputTokens ?? 0) + (response.outputTokens ?? 0) })
+        output = response.output
+        if (output.entries.length) {
+          ctx.repos.aiCache.set(key, 'sort', output, response.servedByModel, response.inputTokens, response.outputTokens)
+          break
+        }
+      } catch (error) {
+        if (error instanceof AiError) throw new Error(error.message)
+        throw error
+      }
     }
+    if (!output!.entries.length && chunk.some((line) => line.text.trim().length > 40)) empty++
+    parts.push(output!)
+  }
+  if (empty && parts.every((part) => !part.entries.length)) {
+    // Still nothing: split without AI rather than lose the import, and say so.
+    const fallback = sortWithRules(ctx, source, destinations)
+    fallback.notes.unshift('The AI found no pages in this file (twice), so it was split without AI. Check the page kinds.')
+    return { result: fallback, requests }
   }
   const result = applySort(lines, parts.map((p) => ({ entries: p.entries, discarded: p.discarded })), codes)
   const suspected = parts.flatMap((p) => p.suspectedInstructions)
@@ -422,6 +439,7 @@ export function smartView(ctx: AppContext, batchId: string) {
       statusExplanation: item.statusExplanation,
       destination: destination ? { key: destination.key, label: destination.label } : job?.recipeId ? { key: null, label: ctx.repos.recipes.get(job.recipeId)?.definition.name ?? 'Unknown' } : null,
       draftId: item.draft?.id ?? null,
+      jobId: item.jobId,
       resourceId: item.resourceId,
       why: meta?.why ?? null,
       confidence: meta?.confidence ?? null,
