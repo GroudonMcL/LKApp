@@ -99,3 +99,9 @@ as in 4.0.0.
   slot (the tab is then written in one go: 3 writes per page); and **Speed up** gives a
   template's blocks their ids once, so copies inherit them (copies keep the template's ids,
   **live**) and skip that step.
+- Field matching: each field goes to the one row that matches it best (its own name, then its
+  aliases in order, singular before plural), so the *Character* template's “Professions” gets the
+  occupation instead of “Class”. With a template followed exactly, extra sections go into its
+  Notes box. Verified live: a goblin with the *Statblock* template fitted (15 writes) and an NPC
+  with the *Character* template followed exactly (9 writes; same boxes in the same order, every
+  field kept, “Secrets” in Notes, Alignment reported as having no place).

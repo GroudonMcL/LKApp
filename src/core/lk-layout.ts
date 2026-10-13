@@ -104,16 +104,30 @@ const COMBINED_ROWS: Record<string, string[]> = {
 
 /** The field keys a layout row key stands for, in order; empty when it matches no field. */
 export function fieldsForLayoutKey(rowKey: string, pageType: PageTypeDefinition, extraLabels: Record<string, string[]> = {}): string[] {
+  return matchLayoutKey(rowKey, pageType, extraLabels).fieldKeys
+}
+
+/**
+ * The fields a row key stands for, and how well it matches (lower is better): the field's own
+ * name, then its aliases in order, each singular before plural ("Professions" → Profession beats
+ * "Class", a later alias). Used to give each field to the one row that matches it best.
+ */
+export function matchLayoutKey(rowKey: string, pageType: PageTypeDefinition, extraLabels: Record<string, string[]> = {}): { fieldKeys: string[]; rank: number } {
   const key = normalizeKey(rowKey)
-  if (!key) return []
+  if (!key) return { fieldKeys: [], rank: Infinity }
   const fieldKeys = new Set(pageType.fields.map((field) => field.key))
   const combined = COMBINED_ROWS[key]?.filter((fieldKey) => fieldKeys.has(fieldKey))
-  if (combined && combined.length > 1) return combined
-  for (const field of pageType.fields) {
-    const labels = [field.label, field.key, ...field.aliases, ...(extraLabels[field.key] ?? [])]
-    if (labels.some((label) => normalizeKey(label) === key)) return [field.key]
+  if (combined && combined.length > 1) return { fieldKeys: combined, rank: 0 }
+  const singular = key.endsWith('ies') ? `${key.slice(0, -3)}y` : key.endsWith('s') ? key.slice(0, -1) : null
+  for (const [candidate, plural] of [[key, 0], ...(singular ? [[singular, 1]] : [])] as [string, number][]) {
+    for (const field of pageType.fields) {
+      const labels = [field.label, field.key, ...field.aliases, ...(extraLabels[field.key] ?? [])]
+      const at = labels.findIndex((label) => normalizeKey(label) === candidate)
+      // A better name first, then singular before plural.
+      if (at !== -1) return { fieldKeys: [field.key], rank: (at <= 1 ? 0 : at - 1) * 2 + plural }
+    }
   }
-  return []
+  return { fieldKeys: [], rank: Infinity }
 }
 
 export interface LayoutSummary {

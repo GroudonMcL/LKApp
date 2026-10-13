@@ -695,8 +695,9 @@ one go.
 
 **Writes per page.** A page made from a template takes: 1 to create the copy, 1 to fill it (or,
 with an empty image slot, 1 to give its blocks ids plus one per infobox group or section that
-changes), and 1 for tags and aliases. Measured on your templates: *Statblock* 12–13, *Magic
-Item* 8–9, *Character* 9–11; a template without an empty image slot takes 3. To save the ids
+changes), and 1 for tags and aliases. Measured live on your templates: *Statblock* fitted to a
+goblin 15 (removing its empty description area, four blocks, is four of them), *Character*
+followed exactly 9, *Magic Item* about 8; a template without an empty image slot takes 3. To save the ids
 step on every page, press **Speed up** on the template (once): it gives the template's own
 blocks their ids in LegendKeeper, which nothing visible changes. LegendKeeper allows 120 writes
 a minute; the app paces itself below that, so a batch of statblocks runs at about 8 pages a

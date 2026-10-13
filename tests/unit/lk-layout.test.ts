@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { plainText, walk, type Block } from '@legendkeeper/sdk/blocks'
 import type { DraftContext } from '@/core/draft-common'
 import { fieldsForLayoutKey, skeletonFromBlocks, summarizeLayout, type LkLayout } from '@/core/lk-layout'
+import { CanonicalPage } from '@/core/page-model'
 import { findBuiltInPageType } from '@/core/page-types'
 import { RecipeDefinition } from '@/core/recipe'
 import { resolveTemplate } from '@/core/resolve'
@@ -192,6 +193,31 @@ describe('layouts copied from LegendKeeper', () => {
     expect(plainText([notes])).toContain('Reactions')
     expect(plainText([notes])).not.toContain('Example notes')
     expect(report.leftOut.every((part) => part.startsWith('the field'))).toBe(true)
+  })
+
+  it('gives each field to the row that matches it best, never to several', () => {
+    const npcType = findBuiltInPageType('npc')!
+    const character: LkLayout = { ...layout(), blocks: [{ kind: 'infobox', rows: [{ kind: 'keyValue', rows: [{ key: 'Species', content: [] }, { key: 'Titles', content: [] }, { key: 'Professions', content: [] }, { key: 'Class', content: [] }] }] }] }
+    const page = CanonicalPage.parse({ schemaVersion: 1, name: 'Elvera', pageType: 'npc', fields: [{ key: 'ancestry', label: 'Ancestry', group: 'lore', value: 'Half-elf', status: 'source' }, { key: 'occupation', label: 'Occupation', group: 'lore', value: 'Innkeeper', status: 'source' }] })
+    const rows = rowsOf(renderFromLayout(page, npcType, character, false, { rules: LAYOUT_PRESETS.exact }))
+    expect(rows).toEqual({ Species: 'Half-elf', Titles: '', Professions: 'Innkeeper', Class: '' })
+  })
+
+  it('exactly as the template: with a Notes box, extra sections go there, not into the description area', () => {
+    const npcType = findBuiltInPageType('npc')!
+    const character: LkLayout = {
+      ...layout(),
+      blocks: [
+        { kind: 'textField', title: 'DESCRIPTION', isTitleHidden: false, children: [{ kind: 'paragraph', content: [{ text: 'Example' }] }] },
+        { kind: 'textField', title: 'Notes', isTitleHidden: false, children: [{ kind: 'paragraph', content: [] }] },
+        { kind: 'paragraph', content: [] },
+      ],
+    }
+    const page = CanonicalPage.parse({ schemaVersion: 1, name: 'Elvera', pageType: 'npc', sections: [{ id: 'a', heading: 'Description', kind: 'lore', paragraphs: ['Runs the inn.'] }, { id: 'b', heading: 'Secrets', kind: 'lore', paragraphs: ['Hides a map.'] }] })
+    const blocks = renderFromLayout(page, npcType, character, false, { rules: LAYOUT_PRESETS.exact })
+    expect(blocks.map((block) => block.kind)).toEqual(['textField', 'textField', 'paragraph'])
+    expect(plainText([blocks[0]!])).toBe('Runs the inn.')
+    expect(plainText([blocks[1]!])).toContain('Hides a map.')
   })
 
   it('keeps empty spacer paragraphs as they are', () => {

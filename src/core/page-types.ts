@@ -71,7 +71,7 @@ export const BUILT_IN_PAGE_TYPES: PageTypeDefinition[] = [
     alternativeTags: ['Character', 'Person'],
     fields: [
       f('ancestry', 'Ancestry', 'lore', 'text', 'Race, species or ancestry as written in the source.', ['Race', 'Species', 'Lineage', 'Heritage']),
-      f('occupation', 'Occupation', 'lore', 'text', 'Class, profession or role.', ['Class', 'Profession', 'Role', 'Title']),
+      f('occupation', 'Occupation', 'lore', 'text', 'Class, profession or role.', ['Profession', 'Role', 'Class', 'Title']),
       f('alignment', 'Alignment', 'lore'),
       f('affiliations', 'Affiliations', 'lore', 'list', 'Factions, organisations or allegiances.', ['Affiliation', 'Faction', 'Factions', 'Allegiance', 'Allegiances']),
       f('residence', 'Residence', 'lore', 'text', 'Where the character lives or is usually found.', ['Home', 'Lives In', 'Location', 'Lair']),

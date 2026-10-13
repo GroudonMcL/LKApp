@@ -1,5 +1,5 @@
 import { br, h, links, property, walk, type Block, type Run } from '@legendkeeper/sdk/blocks'
-import { fieldsForLayoutKey, isEmptyImage, isPlaceholderBlock, type LkLayout } from '@/core/lk-layout'
+import { isEmptyImage, isPlaceholderBlock, matchLayoutKey, type LkLayout } from '@/core/lk-layout'
 import { resolvedReferences, writableFields, type CanonicalPage, type PageSection } from '@/core/page-model'
 import type { PageTypeDefinition } from '@/core/page-types'
 import type { LayoutRules } from '@/core/template'
@@ -39,7 +39,7 @@ const DEFAULT_RULES: LayoutRules = { emptyFields: 'keep', emptySections: 'remove
 const NOTES_TITLE = /^(notes?|other|misc(ellaneous)?|additional( notes| information)?)$/i
 
 type AnyBlock = Record<string, unknown>
-type Row = { key: string; fieldKeys: string[] }
+type Row = { key: string; fieldKeys: string[]; rank: number }
 
 const norm = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '')
 
@@ -59,7 +59,7 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
       keyValues.push({ block, inInfobox })
       rowsOf.set(
         block,
-        (block.rows as AnyBlock[]).map((row) => ({ key: String(row.key ?? ''), fieldKeys: fieldsForLayoutKey(String(row.key ?? ''), pageType) })),
+        (block.rows as AnyBlock[]).map((row) => ({ key: String(row.key ?? ''), ...matchLayoutKey(String(row.key ?? ''), pageType) })),
       )
       return
     }
@@ -94,6 +94,16 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   const slotFields = new Set([...slots.values()].flatMap((slot) => (slot.kind === 'field' ? [slot.key] : [])))
 
   const allRows = [...rowsOf.values()].flat()
+  // A field goes to the one row that matches it best ("Professions" over "Class" for Occupation),
+  // never to several; the other rows stay as the template has them (blank, or removed).
+  const best = new Map<string, Row>()
+  for (const row of allRows) {
+    if (row.fieldKeys.length !== 1) continue
+    const field = row.fieldKeys[0]!
+    const current = best.get(field)
+    if (!current || row.rank < current.rank) best.set(field, row)
+  }
+  for (const row of allRows) if (row.fieldKeys.length === 1 && best.get(row.fieldKeys[0]!) !== row) row.fieldKeys = []
   const dedicated = new Set(allRows.filter((row) => row.fieldKeys.length === 1).map((row) => row.fieldKeys[0]!))
   for (const row of allRows) if (row.fieldKeys.length > 1) row.fieldKeys = row.fieldKeys.filter((key) => !dedicated.has(key))
   const covered = new Set([...allRows.flatMap((row) => row.fieldKeys), ...slotFields])
@@ -319,7 +329,8 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
     const notes = out.find((block) => block.kind === 'textField' && typeof block.title === 'string' && NOTES_TITLE.test(block.title.trim()))
     const hasArea = descriptionAt !== -1
     const firstLore = rest.find((section) => section.kind !== 'mechanics')
-    const toArea = hasArea && firstLore ? [firstLore] : []
+    // Only the description itself goes into the description area when there is a Notes box.
+    const toArea = hasArea && firstLore && (!notes || /^(description|overview|summary|appearance)$/.test(norm(firstLore.heading))) ? [firstLore] : []
     const leftovers = rest.filter((section) => !toArea.includes(section))
     if (notes) {
       const existing = ((notes.children as AnyBlock[]) ?? []).filter((child) => hasText([child]))
