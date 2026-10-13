@@ -28,7 +28,7 @@ export interface RenderContext {
 export const DEFAULT_DOCUMENT_NAME = 'Main'
 
 export function renderPageBlocks(page: CanonicalPage, ctx: RenderContext): Block[] {
-  if (ctx.template.lkLayout) return renderFromLayout(page, ctx.pageType, ctx.template.lkLayout, ctx.template.includeSourcesSection)
+  if (ctx.template.lkLayout) return renderFromLayout(page, ctx.pageType, ctx.template.lkLayout, ctx.template.includeSourcesSection, { rules: ctx.template.layoutRules })
   const blocks: Block[] = []
   const targets = mentionTargets(page)
 

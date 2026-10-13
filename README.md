@@ -665,17 +665,42 @@ recipe.
 template, each approved page is created in LegendKeeper as a **copy of that template**
 (LegendKeeper's *create from template*): it gets the template's sidebar properties (such as
 the Tags box), icon, banner, colour and other tabs, exactly as the template has them. The app
-then **fills that copy in place**: the template's infobox keeps every field in the template's
-order (a field with no value stays, blank), its image slots and built-in boxes (Tags,
-Aliases) are left exactly as they are, the template's example text is removed or replaced,
-and your tags and aliases are added to the template's own. The final preview says which
-template is used, which tab is filled and which built-in parts are kept.
+then **fills that copy in place**: the template's infobox keeps its fields in the template's
+order, its image slots and built-in boxes (Tags, Aliases) are left exactly as they are, the
+template's example text is removed or replaced, and your tags and aliases are added to the
+template's own. The final preview says which template is used, which tab is filled and which
+built-in parts are kept.
+
+**How strictly each template is followed** is chosen when you copy it (and can be changed on
+the template, rule by rule):
+
+| | Exactly as the template | Fitted to each page |
+| --- | --- | --- |
+| A field with no value (e.g. Resistances) | stays, blank | removed |
+| A section with nothing in it (e.g. Legendary Actions) | stays, blank | removed |
+| A field the template has no row for (e.g. Saving Throws) | not added; listed in the final preview | added in line, where it comes in a statblock |
+| A section the template has no box for (e.g. Reactions) | goes into the template's Notes box, or its description area, under a bold heading | added as a new box |
+
+Image slots always stay. When copying, statblock templates default to *fitted* and everything
+else to *exactly as the template*. Templates copied before October 13 keep empty fields,
+remove empty sections and add extra fields (now in line rather than at the end) until you
+change them.
 
 The preview reads the template as it is in LegendKeeper (if you changed it since copying its
 layout, the copy is refreshed and the preview says so), and approving is refused if the
-template changes after the preview. Filling is done with small edits to the copy (one per
-infobox group or block that changes), because LegendKeeper refuses to take back an empty image
-slot in a whole-page write. If filling stops part-way (for example the connection drops), the
+template changes after the preview. When the template has an empty image slot, filling is done
+with small edits to the copy (one per infobox group or block that changes), because LegendKeeper
+refuses to take back an empty image slot in a whole-page write; otherwise the tab is written in
+one go.
+
+**Writes per page.** A page made from a template takes: 1 to create the copy, 1 to fill it (or,
+with an empty image slot, 1 to give its blocks ids plus one per infobox group or section that
+changes), and 1 for tags and aliases. Measured on your templates: *Statblock* 12–13, *Magic
+Item* 8–9, *Character* 9–11; a template without an empty image slot takes 3. To save the ids
+step on every page, press **Speed up** on the template (once): it gives the template's own
+blocks their ids in LegendKeeper, which nothing visible changes. LegendKeeper allows 120 writes
+a minute; the app paces itself below that, so a batch of statblocks runs at about 8 pages a
+minute. If filling stops part-way (for example the connection drops), the
 page exists but is unfinished; the draft shows **Finish the page**, which carries on from where
 it stopped. The page is never created twice.
 
@@ -684,23 +709,25 @@ Filling the layout works like this:
 - the first big heading becomes the page name;
 - each infobox row is filled from the field with the same name or alias (“Armour Class” → Armor
   Class, “Strength” → STR, “Immunities” → damage and condition immunities, …), in the
-  template's order; rows the source has no value for stay, blank (the example value removed);
+  template's order; rows the source has no value for stay, blank (or are removed, for a template
+  fitted to each page), and the example value is never copied;
   a “Source” row that matches no field gets where the content came from;
 - each titled text block (“Traits”, “Actions”, …) gets the section with the same heading, and
   is left out when the source has none; extra sections (e.g. “Reactions”) become new text
   blocks in the same style;
 - in statblock sections, each entry's name is bold (“**Nimble Feet.** The goblin …”); only title-like names are bolded, and the wording itself is never changed;
 - the description goes where the template has its placeholder text;
-- fields the template has no row for (e.g. Size, Alignment, Gear) are added after the
-  template's own rows, at the end of its last group, so the template's order never changes;
+- fields the template has no row for (e.g. Size, Alignment, Gear) are added in line, after the
+  template row that comes before them in a statblock (or not at all, for a template followed
+  exactly); the template's own rows never move;
 - template conventions are followed: `[Spell] Name`-style headings become the page name, other
   `[Class]`-style placeholders are replaced with it (“Becoming a [Class]” → “Becoming a Tidecaller”),
   a hidden box whose example text is “Description text” receives the description, a box whose
   example text starts with a field name (“Holy symbol description”) receives that field, the
   template's quote slot receives the source's first `> quotation`, and an empty tag-index collection
   is filled as the template's own note says (e.g. the class name and “Subclass”);
-- example tables and text boxes outside the infobox that would be left empty are left out
-  instead of copied as empty frames (fields inside the infobox stay, blank).
+- example tables are left out instead of copied as empty frames; text boxes with nothing in them
+  stay blank or are removed, as the template's rules say; empty spacer paragraphs stay.
 
 Template rows the built-in page types have no field for (e.g. a god's *Portfolio* or a spell's
 *Casting Time*) are filled once you add those fields to the recipe (*Extra fields*); the

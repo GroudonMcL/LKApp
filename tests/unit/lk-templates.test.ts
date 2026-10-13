@@ -107,7 +107,7 @@ describe('LegendKeeper templates (SDK 4.1.0)', () => {
     expect(main[1]!.rows![0]).toMatchObject({ kind: 'image', url: '' })
     const keys = main[1]!.rows!.flatMap((r) => (r.kind === 'keyValue' ? r.rows!.map((row) => row.key) : []))
     const templateKeys = templateInfobox.flatMap((r) => (r.kind === 'keyValue' ? r.rows!.map((row) => row.key) : []))
-    expect(keys.slice(0, templateKeys.length)).toEqual(templateKeys)
+    expect(keys.filter((key) => templateKeys.includes(key))).toEqual(templateKeys)
     const row = (key: string) => main[1]!.rows!.flatMap((r) => r.rows ?? []).find((x) => x.key === key)!
     expect(row('Armour Class').content.map((c) => c.text).join('')).toBe('17')
     expect(row('Resistances').content).toEqual([]) // blank, example value removed
@@ -189,6 +189,23 @@ describe('LegendKeeper templates (SDK 4.1.0)', () => {
     expect(preview.placement).toMatch(/before “Zombie”/)
     await approveWrite(ctx, view.draft.id, { approvalToken: preview.approvalToken, acknowledgeWarnings: true })
     expect(ctx.lk.fromTemplateRequests[0]!.placement).toEqual({ before: 'zombie01' })
+  })
+
+  it('writes a template without an image slot in one go, and only gives blocks ids when it must edit them one by one', async () => {
+    const stripIds = (value: unknown): unknown => (Array.isArray(value) ? value.map(stripIds) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([k, v]) => !(k === 'id' && typeof (value as { kind?: unknown }).kind === 'string' && (value as { kind?: unknown }).kind !== 'unsupported') || typeof v !== 'string').map(([k, v]) => [k, stripIds(v)])) : value)
+    const legacy = stripIds(templateBlocks) as Record<string, unknown>[]
+    const noImage = structuredClone(legacy)
+    ;(noImage[0] as { rows: { kind: string }[] }).rows = (noImage[0] as { rows: { kind: string }[] }).rows.filter((row) => row.kind !== 'image')
+
+    for (const [blocks, expected] of [[noImage, { ids: 0, whole: 1 }], [legacy, { ids: 1, whole: 0 }]] as const) {
+      const ctx = setup()
+      ctx.lk.resources.get('l1ylm24t')!.documents[0]!.blocks = [...(blocks as unknown[])]
+      const { view } = await goblinDraft(ctx)
+      const preview = await prepareWrite(ctx, view.draft.id)
+      expect((await approveWrite(ctx, view.draft.id, { approvalToken: preview.approvalToken, acknowledgeWarnings: true })).status).toBe('created')
+      expect(ctx.lk.callCount('assignBlockIds')).toBe(expected.ids)
+      expect(ctx.lk.callCount('replaceDocumentBlocks')).toBe(expected.whole)
+    }
   })
 
   it('merges labels without duplicates', () => {
@@ -288,9 +305,11 @@ describe('planning the edits that fill a template copy', () => {
       { kind: 'paragraph', content: [{ text: 'Description' }] },
     ]
     const ops = planFill(current, desired, id)
-    expect(ops.map((op) => op.op)).toEqual(['delete', 'delete', 'updateProperty', 'replace', 'insert'])
-    expect(ops[2]).toMatchObject({ op: 'updateProperty', blockId: 'ib1', propertyId: 'kv1', patch: { rows: [{ id: 'r0', key: 'Armour Class', content: [{ text: '17' }] }, { id: 'r1', key: 'Speed', content: [] }] } })
-    expect(ops[4]).toMatchObject({ op: 'insert', after: 't1', block: { id: expect.any(String) } })
+    // The new paragraph takes the place of the removed "Legendary Actions" box: 4 edits, not 5.
+    expect(ops.map((op) => op.op)).toEqual(['delete', 'updateProperty', 'replace', 'replace'])
+    expect(ops[0]).toMatchObject({ op: 'delete', blockId: 'p1' })
+    expect(ops[1]).toMatchObject({ op: 'updateProperty', blockId: 'ib1', propertyId: 'kv1', patch: { rows: [{ id: 'r0', key: 'Armour Class', content: [{ text: '17' }] }, { id: 'r1', key: 'Speed', content: [] }] } })
+    expect(ops[3]).toMatchObject({ op: 'replace', blockId: 't2', block: { id: 't2', kind: 'paragraph' } })
     // The image slot is never part of an edit.
     expect(JSON.stringify(ops)).not.toContain('"img"')
     // Bodies match LegendKeeper's schema.
@@ -299,6 +318,9 @@ describe('planning the edits that fill a template copy', () => {
       if (op.op === 'replace') expect(validateAgainstSpec('Block', op.block).errors).toEqual([])
       if (op.op === 'insert') expect(validateAgainstSpec('BlockInsertRequest', { block: op.block, after: op.after }).errors).toEqual([])
     }
+    // Without a removed block in the way, a new block is inserted.
+    const inserted = planFill([infobox([image]), { id: 'k', kind: 'paragraph', content: [{ text: 'Kept' }] }], [infobox([image]), { id: 'k', kind: 'paragraph', content: [{ text: 'Kept' }] }, { kind: 'paragraph', content: [{ text: 'New' }] }], id)
+    expect(inserted).toEqual([expect.objectContaining({ op: 'insert', after: 'k' })])
   })
 
   it('steps into containers that hold an image slot (an infobox inside a column layout)', () => {

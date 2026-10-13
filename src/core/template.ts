@@ -17,6 +17,33 @@ import { BUILT_IN_PAGE_TYPES } from './page-types'
  * - `local`: created in this app, or copied from LegendKeeper (then `lkLayout` is set).
  */
 
+/**
+ * How a page follows a layout copied from LegendKeeper:
+ * - `emptyFields`: infobox fields the source has no value for stay, blank (`keep`), or are
+ *   removed (`remove`). Image slots always stay.
+ * - `emptySections`: text sections the source has nothing for stay, blank (`keep`), or are
+ *   removed (`remove`).
+ * - `additions`: fields the template has no row for are added in line, where they come in a
+ *   statblock or field list, and sections with no matching box are added as new boxes (`add`);
+ *   or nothing is added to the template's structure (`none`): such sections go into the
+ *   template's Notes box or description area, and anything with no place is listed in the final
+ *   preview as not written.
+ */
+export const LayoutRules = z.object({
+  emptyFields: z.enum(['keep', 'remove']).default('keep'),
+  emptySections: z.enum(['keep', 'remove']).default('remove'),
+  additions: z.enum(['add', 'none']).default('add'),
+})
+export type LayoutRules = z.infer<typeof LayoutRules>
+
+/** Presets offered when copying a template. */
+export const LAYOUT_PRESETS: Record<'exact' | 'fit', LayoutRules> = {
+  /** Every field and section of the template, in place, and nothing added. */
+  exact: { emptyFields: 'keep', emptySections: 'keep', additions: 'none' },
+  /** Empty fields and sections removed; extra fields and sections added in place. */
+  fit: { emptyFields: 'remove', emptySections: 'remove', additions: 'add' },
+}
+
 export const TemplateOrigin = z.enum(['example', 'local'])
 export type TemplateOrigin = z.infer<typeof TemplateOrigin>
 
@@ -35,6 +62,8 @@ export const TemplateDefinition = z.object({
   notes: z.string().max(4000).default(''),
   /** A layout copied from LegendKeeper. When set, it replaces the app's own page layout. */
   lkLayout: LkLayout.nullable().default(null),
+  /** How strictly pages follow a layout copied from LegendKeeper (see LayoutRules). */
+  layoutRules: LayoutRules.default({ emptyFields: 'keep', emptySections: 'remove', additions: 'add' }),
 })
 export type TemplateDefinition = z.infer<typeof TemplateDefinition>
 export type TemplateDefinitionInput = z.input<typeof TemplateDefinition>

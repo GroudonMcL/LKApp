@@ -2,6 +2,7 @@ import { br, h, links, property, walk, type Block, type Run } from '@legendkeepe
 import { fieldsForLayoutKey, isEmptyImage, isPlaceholderBlock, type LkLayout } from '@/core/lk-layout'
 import { resolvedReferences, writableFields, type CanonicalPage, type PageSection } from '@/core/page-model'
 import type { PageTypeDefinition } from '@/core/page-types'
+import type { LayoutRules } from '@/core/template'
 import { boldEntryName, inlineRuns, mentionTargets, paragraphBlocks, sourcesBlocks } from './render-text'
 
 /**
@@ -10,12 +11,13 @@ import { boldEntryName, inlineRuns, mentionTargets, paragraphBlocks, sourcesBloc
  * The same rules as the app's own renderer apply: only confirmed values (`source` or `user`)
  * are written, only resolved references become links, and mechanics stay apart from lore.
  *
- * Infobox fields keep the template's order exactly, and a field without a value stays, blank
- * (the template's example value is removed). Fields the template has no row for are added after
- * the template's own rows, at the end of its last group. Template text is never copied into the
- * page: text blocks without a matching section are left out, and placeholder paragraphs are
- * replaced. Block and row ids in the layout are kept, so the result can be written back into a
- * copy of the template block by block (see core/template-fill.ts).
+ * Infobox fields keep the template's order exactly. The template's layout rules decide the rest:
+ * fields and sections the source has nothing for stay, blank, or are removed; fields the
+ * template has no row for are added in line (where they come in the page type's field order,
+ * which is the order of a statblock), or not at all. Template example text is never copied into
+ * the page, and empty spacer paragraphs stay as they are. Block and row ids in the layout are
+ * kept, so the result can be written back into a copy of the template block by block (see
+ * core/template-fill.ts).
  *
  * Pure: no network, no database.
  */
@@ -26,7 +28,15 @@ export interface LayoutRenderOptions {
    * has the slot (a copy of the template, filled block by block) can keep it.
    */
   keepEmptyImages?: boolean
+  /** How strictly the page follows the template (the template's own setting). */
+  rules?: LayoutRules
+  /** Filled in with what the page has but the template leaves no place for (rules.additions = none). */
+  report?: { leftOut: string[] }
 }
+
+const DEFAULT_RULES: LayoutRules = { emptyFields: 'keep', emptySections: 'remove', additions: 'add' }
+/** A text box that takes whatever has no place of its own, when the template adds nothing. */
+const NOTES_TITLE = /^(notes?|other|misc(ellaneous)?|additional( notes| information)?)$/i
 
 type AnyBlock = Record<string, unknown>
 type Row = { key: string; fieldKeys: string[] }
@@ -34,6 +44,8 @@ type Row = { key: string; fieldKeys: string[] }
 const norm = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '')
 
 export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefinition, layout: LkLayout, includeSources: boolean, options: LayoutRenderOptions = {}): Block[] {
+  const rules = options.rules ?? DEFAULT_RULES
+  const leftOut = (what: string) => options.report?.leftOut.push(what)
   const targets = mentionTargets(page)
   const values = new Map(writableFields(page).map((field) => [field.key, field.value!.trim()]))
   const template = structuredClone(layout.blocks) as AnyBlock[]
@@ -86,13 +98,33 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   for (const row of allRows) if (row.fieldKeys.length > 1) row.fieldKeys = row.fieldKeys.filter((key) => !dedicated.has(key))
   const covered = new Set([...allRows.flatMap((row) => row.fieldKeys), ...slotFields])
 
-  // Fields with a value but no row of their own go after the template's rows, at the end of its
-  // last group, so the template's own order is never changed.
+  // Fields with a value but no row of their own. With additions, each goes in line: after the
+  // template row that comes just before it in the page type's field order (a statblock's order),
+  // so "Condition Immunities" lands after "Immunities", not at the end. The template's own rows
+  // never move.
   const order = pageType.fields.map((field) => field.key)
   const extra = order.filter((key) => values.has(key) && !covered.has(key))
   const groups = keyValues.some((kv) => kv.inInfobox) ? keyValues.filter((kv) => kv.inInfobox) : keyValues
   const firstGroup = groups[0]?.block
   const lastGroup = groups[groups.length - 1]?.block
+  /** Per group: extra field keys to add after its row i (-1: before its first row). */
+  const extrasAt = new Map<AnyBlock, Map<number, string[]>>()
+  if (rules.additions === 'add' && firstGroup) {
+    const anchors = groups.flatMap(({ block }) =>
+      (rowsOf.get(block) ?? []).map((row, i) => ({ block, i, at: Math.min(...row.fieldKeys.map((key) => order.indexOf(key)).filter((n) => n >= 0), Infinity) })),
+    ).filter((anchor) => anchor.at !== Infinity)
+    for (const key of extra) {
+      const at = order.indexOf(key)
+      const before = anchors.filter((anchor) => anchor.at < at).sort((a, b) => b.at - a.at)[0]
+      const after = anchors.filter((anchor) => anchor.at > at).sort((a, b) => a.at - b.at)[0]
+      const place = before ? { block: before.block, i: before.i } : after ? { block: after.block, i: after.i - 1 } : { block: lastGroup!, i: (rowsOf.get(lastGroup!) ?? []).length - 1 }
+      const forGroup = extrasAt.get(place.block) ?? new Map<number, string[]>()
+      forGroup.set(place.i, [...(forGroup.get(place.i) ?? []), key])
+      extrasAt.set(place.block, forGroup)
+    }
+  } else if (rules.additions === 'none') {
+    for (const key of extra) leftOut(`the field “${pageType.fields.find((field) => field.key === key)?.label ?? key}”`)
+  }
 
   const sourceLine = page.sources.map((source) => `${source.title}${source.citation ? ` (${source.citation})` : ''}`).join('; ')
   const labelOf = (key: string) => pageType.fields.find((field) => field.key === key)?.label ?? key
@@ -141,18 +173,21 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   const fill = (block: AnyBlock, depth: number): AnyBlock | null => {
     switch (block.kind) {
       case 'keyValue': {
-        // Every template row, in the template's order: its value, or blank. The row keeps its id
-        // and position; its example value (and the read-only `text`) is not copied.
+        // Every template row, in the template's order: its value, or blank (or left out, when the
+        // template's rules remove empty fields). The row keeps its id and position; its example
+        // value (and the read-only `text`) is not copied. Extra fields go in line.
         const originals = block.rows as AnyBlock[]
-        const rows: AnyBlock[] = (rowsOf.get(block) ?? []).map((row, i) => {
+        const inline = extrasAt.get(block)
+        const rows: AnyBlock[] = [...extraRows(inline?.get(-1) ?? [])]
+        ;(rowsOf.get(block) ?? []).forEach((row, i) => {
           const { text: _exampleText, content: _exampleContent, ...kept } = originals[i] ?? {}
           let text = row.fieldKeys.filter((key) => values.has(key)).map((key) => values.get(key)!).join('; ')
           // A "Source" row that matches no field gets where the page's content came from.
           if (!text && row.fieldKeys.length === 0 && /^sources?$/.test(norm(row.key))) text = sourceLine
-          return { ...kept, key: row.key, content: text ? valueRuns(text) : [] }
+          if (text || rules.emptyFields === 'keep') rows.push({ ...kept, key: row.key, content: text ? valueRuns(text) : [] })
+          rows.push(...extraRows(inline?.get(i) ?? []))
         })
-        if (block === lastGroup) rows.push(...extraRows(extra))
-        return { ...block, rows }
+        return rows.length || rules.emptyFields === 'keep' ? { ...block, rows } : null
       }
       case 'heading': {
         const text = headingText(block)
@@ -187,10 +222,13 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
       case 'textField': {
         if (depth === 0 && typeof block.title === 'string' && block.isTitleHidden !== true) {
           const section = sectionFor(block.title)
-          return section ? { ...block, children: sectionChildren(section) } : null
+          if (section) return { ...block, children: sectionChildren(section) }
+          // Nothing for this section: kept, blank, or removed, as the template's rules say.
+          return rules.emptySections === 'keep' ? { ...block, children: [{ kind: 'paragraph', content: [] }] } : null
         }
-        // A field slot without a value stays, blank (its example text removed).
-        const blank = { ...block, children: [{ kind: 'paragraph', content: [] }] }
+        // A field slot without a value stays, blank (its example text removed), unless the
+        // template's rules remove empty fields.
+        const blank = rules.emptyFields === 'keep' ? { ...block, children: [{ kind: 'paragraph', content: [] }] } : null
         const slot = slots.get(block)
         if (slot?.kind === 'field') {
           const value = values.get(slot.key)
@@ -233,6 +271,7 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   const fillChildren = (items: unknown, depth: number): AnyBlock[] =>
     Array.isArray(items) ? (items as AnyBlock[]).map((child) => fill(child, depth + 1)).filter((child): child is AnyBlock => child !== null) : []
 
+  const loreBlocksExtra: AnyBlock[] = []
   // Walk the top level. The first run of free paragraphs marks where the description goes;
   // the last text block marks where extra mechanics sections go.
   const out: AnyBlock[] = []
@@ -246,8 +285,16 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
       topIndex++
       continue
     }
+    // A quote box with nothing to quote: kept, blank, when empty sections stay.
+    if (block.kind === 'quote' && rules.emptySections === 'keep') {
+      out.push({ ...block, children: [{ kind: 'paragraph', content: [] }] })
+      topIndex++
+      continue
+    }
     if (!isName && isPlaceholderBlock(block)) {
       if (descriptionAt === -1) descriptionAt = out.length
+      // An empty paragraph is a spacer in the template's layout, not example text: it stays.
+      if (block.kind === 'paragraph' && !hasText([block])) out.push(block)
       topIndex++
       continue
     }
@@ -256,7 +303,7 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
     if (filled) out.push(filled)
     if (block.kind === 'textField' || block.kind === 'infobox') mechanicsAt = out.length
   }
-  if (!firstGroup && extra.length) {
+  if (!firstGroup && extra.length && rules.additions === 'add') {
     // The layout has no key-value block at all: put the fields in one after the infobox (or at the top).
     const at = out.findIndex((block) => block.kind === 'infobox') + 1
     out.splice(at, 0, { kind: 'keyValue', rows: extraRows(extra) })
@@ -264,19 +311,44 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
     if (mechanicsAt >= at) mechanicsAt++
   }
 
-  const rest = sections.filter((section) => !placed.has(section))
+  let rest = sections.filter((section) => !placed.has(section))
+  // Adding nothing to the template: sections without a box of their own go into its Notes box
+  // (under a bold heading), or else into its description area; with neither, they are reported.
+  const boldHeading = (text: string): AnyBlock => ({ kind: 'paragraph', content: [{ text, bold: true }] })
+  if (rules.additions === 'none') {
+    const notes = out.find((block) => block.kind === 'textField' && typeof block.title === 'string' && NOTES_TITLE.test(block.title.trim()))
+    const hasArea = descriptionAt !== -1
+    const firstLore = rest.find((section) => section.kind !== 'mechanics')
+    const toArea = hasArea && firstLore ? [firstLore] : []
+    const leftovers = rest.filter((section) => !toArea.includes(section))
+    if (notes) {
+      const existing = ((notes.children as AnyBlock[]) ?? []).filter((child) => hasText([child]))
+      notes.children = [...existing, ...leftovers.flatMap((section) => [boldHeading(section.heading), ...(sectionChildren(section) as unknown as AnyBlock[])])]
+      rest = toArea
+    } else if (!hasArea) {
+      for (const section of leftovers) leftOut(`the section “${section.heading}”`)
+      rest = []
+    }
+    // Otherwise everything goes into the description area, as text under bold headings.
+  }
   const mechanics = rest.filter((section) => section.kind === 'mechanics')
   const lore = rest.filter((section) => section.kind !== 'mechanics')
   const mechanicsBlocks: AnyBlock[] = []
   for (const section of mechanics) {
     const merged = sectionFor(section.heading)
-    if (merged) mechanicsBlocks.push({ kind: 'textField', title: section.heading, isTitleHidden: false, children: sectionChildren(merged) })
+    if (!merged) continue
+    // Adding nothing: in the description area as text under a bold heading, not as a new box.
+    if (rules.additions === 'none') loreBlocksExtra.push(boldHeading(section.heading), ...(sectionChildren(merged) as unknown as AnyBlock[]))
+    else mechanicsBlocks.push({ kind: 'textField', title: section.heading, isTitleHidden: false, children: sectionChildren(merged) })
   }
-  const loreBlocks: AnyBlock[] = lore.flatMap((section, i) => [
-    // The first lore section fills the template's description slot; a "Description" heading would repeat it.
-    ...(i === 0 && descriptionAt !== -1 && norm(section.heading) === 'description' ? [] : [h(2, section.heading)]),
-    ...sectionChildren(section),
-  ])
+  const loreBlocks: AnyBlock[] = [
+    ...lore.flatMap((section, i) => [
+      // The first lore section fills the template's description slot; a "Description" heading would repeat it.
+      ...(i === 0 && descriptionAt !== -1 && norm(section.heading) === 'description' ? [] : [rules.additions === 'none' ? boldHeading(section.heading) : h(2, section.heading)]),
+      ...sectionChildren(section),
+    ]),
+    ...loreBlocksExtra,
+  ]
 
   if (mechanicsAt === -1) mechanicsAt = descriptionAt === -1 ? out.length : descriptionAt
   if (descriptionAt === -1) descriptionAt = out.length
@@ -295,7 +367,12 @@ export function renderFromLayout(page: CanonicalPage, pageType: PageTypeDefiniti
   const unlinked = [...new Set(resolvedReferences(page).map((ref) => ref.resourceId!))].filter((id) => !linkedIds.has(id))
   if (unlinked.length) {
     const box = out.find((block) => block.kind === 'infobox')
-    if (box) box.rows = [...(box.rows as AnyBlock[]), property(links(unlinked), { title: 'Related' }) as unknown as AnyBlock]
+    const notes = out.find((block) => block.kind === 'textField' && typeof block.title === 'string' && NOTES_TITLE.test(block.title.trim()))
+    if (rules.additions === 'none') {
+      // Adding nothing: listed in the Notes box if there is one.
+      if (notes) notes.children = [...((notes.children as AnyBlock[]) ?? []).filter((child) => hasText([child])), boldHeading('Related'), links(unlinked) as unknown as AnyBlock]
+      else leftOut('the list of related pages')
+    } else if (box) box.rows = [...(box.rows as AnyBlock[]), property(links(unlinked), { title: 'Related' }) as unknown as AnyBlock]
     else out.push(h(2, 'Related') as unknown as AnyBlock, links(unlinked) as unknown as AnyBlock)
   }
 

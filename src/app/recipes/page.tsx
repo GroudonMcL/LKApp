@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { Badge, Button, Card, Empty, ErrorBox, KeyValue, Loading, Notice, formatDate, useAction, useApi } from '@/components/ui'
 import { api } from '@/lib/api'
 import type { Recipe } from '@/core/recipe'
-import type { TemplateDefinitionInput } from '@/core/template'
+import { LAYOUT_PRESETS, type LayoutRules, type TemplateDefinitionInput } from '@/core/template'
 import type { PageTypeDefinition } from '@/core/page-types'
 import { LkBlocksPreview } from '@/components/lk-preview'
 import type { LayoutReport, LkTemplateListing, TemplateWithReport } from '@/lib/types'
@@ -79,6 +79,7 @@ function Templates({ recipes, onRecipesChanged }: { recipes: Recipe[]; onRecipes
   const [editing, setEditing] = useState<{ id: string | null; definition: TemplateDefinitionInput } | null>(null)
   const [copying, setCopying] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [prepared, setPrepared] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
   const [made, setMade] = useState<Recipe | null>(null)
   const action = useAction()
@@ -118,6 +119,7 @@ function Templates({ recipes, onRecipesChanged }: { recipes: Recipe[]; onRecipes
           and to adjust tag and link rules.
         </Notice>
       )}
+      {prepared && <Notice tone="success">{prepared}</Notice>}
       <ErrorBox error={error ?? action.error} />
       {loading && <Loading />}
       {data && (
@@ -159,6 +161,7 @@ function Templates({ recipes, onRecipesChanged }: { recipes: Recipe[]; onRecipes
                         Layout of the LegendKeeper {template.definition.lkLayout.sourceKind} “{template.definition.lkLayout.sourceName}” (<code>{template.definition.lkLayout.sourceResourceId}</code>), copied{' '}
                         {formatDate(template.definition.lkLayout.fetchedAt)}.{' '}
                         {template.definition.lkLayout.sourceKind === 'template' && 'New pages start as a copy of this template in LegendKeeper. '}
+                        <strong>{describeRules(template.definition.layoutRules)}.</strong>{' '}
                         <button type="button" className="link-button" onClick={() => setOpen(open === template.id ? null : template.id)}>
                           {open === template.id ? 'Hide details' : 'What goes where'}
                         </button>
@@ -206,6 +209,27 @@ function Templates({ recipes, onRecipesChanged }: { recipes: Recipe[]; onRecipes
                             }
                           >
                             Refresh
+                          </Button>
+                        )}
+                        {template.definition.lkLayout?.sourceKind === 'template' && (
+                          <Button
+                            variant="ghost"
+                            busy={action.busy}
+                            title="Gives the template's blocks their ids in LegendKeeper (nothing visible changes), so each new page needs one write fewer"
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  `Prepare “${template.definition.lkLayout!.sourceName}” in LegendKeeper?\n\nThis gives the blocks of the template's first tab the ids LegendKeeper uses to address them. Nothing you can see changes. Pages made from it then need one write fewer each.`,
+                                )
+                              )
+                                void action.run(async () => {
+                                  const result = await api.post<{ prepared: boolean; already: boolean; name: string }>(`/api/templates/${template.id}/prepare-lk`, { confirm: true })
+                                  setMade(null)
+                                  setPrepared(result.already ? `“${result.name}” was already prepared.` : `Prepared “${result.name}”: pages made from it now take one write fewer.`)
+                                })
+                            }}
+                          >
+                            Speed up
                           </Button>
                         )}
                         <Button variant="ghost" onClick={() => setEditing({ id: template.id, definition: template.definition })}>
@@ -279,6 +303,7 @@ function TemplateEditor({ initial, pageTypes, busy, onSave, onCancel }: { initia
               The layout comes from the LegendKeeper {definition.lkLayout.sourceKind} “{definition.lkLayout.sourceName}”. To change it, edit it in LegendKeeper and press <strong>Refresh</strong>.
               The section headings and infobox fields below are not used for this template.
             </Notice>
+            <LayoutRulesEditor rules={definition.layoutRules} onChange={(layoutRules) => setDefinition({ ...definition, layoutRules })} />
           </div>
         )}
         <div className="field">
@@ -318,6 +343,50 @@ function TemplateEditor({ initial, pageTypes, busy, onSave, onCancel }: { initia
   )
 }
 
+function describeRules(rules: LayoutRules): string {
+  const same = (a: LayoutRules, b: LayoutRules) => a.emptyFields === b.emptyFields && a.emptySections === b.emptySections && a.additions === b.additions
+  if (same(rules, LAYOUT_PRESETS.exact)) return 'Pages follow it exactly'
+  if (same(rules, LAYOUT_PRESETS.fit)) return 'Pages are fitted to their content'
+  return [
+    rules.emptyFields === 'keep' ? 'empty fields kept' : 'empty fields removed',
+    rules.emptySections === 'keep' ? 'empty sections kept' : 'empty sections removed',
+    rules.additions === 'add' ? 'extra fields added in line' : 'nothing added',
+  ].join(', ').replace(/^./, (c) => c.toUpperCase())
+}
+
+/** How strictly pages follow a template copied from LegendKeeper: two presets and the three rules. */
+function LayoutRulesEditor({ rules: given, onChange }: { rules: Partial<LayoutRules> | undefined; onChange: (rules: LayoutRules) => void }) {
+  const rules: LayoutRules = { emptyFields: given?.emptyFields ?? 'keep', emptySections: given?.emptySections ?? 'remove', additions: given?.additions ?? 'add' }
+  return (
+    <div className="stack" style={{ marginTop: '0.5rem' }}>
+      <strong>How new pages follow this template</strong>
+      <div className="row">
+        <Button variant="ghost" onClick={() => onChange(LAYOUT_PRESETS.exact)}>
+          Exactly as the template
+        </Button>
+        <Button variant="ghost" onClick={() => onChange(LAYOUT_PRESETS.fit)}>
+          Fitted to each page
+        </Button>
+      </div>
+      <label className="check">
+        <input type="checkbox" checked={rules.emptyFields === 'remove'} onChange={(e) => onChange({ ...rules, emptyFields: e.target.checked ? 'remove' : 'keep' })} />
+        <span>Remove fields that have no value (e.g. Resistances on a creature without any). Unticked: they stay, blank. Image slots always stay.</span>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={rules.emptySections === 'remove'} onChange={(e) => onChange({ ...rules, emptySections: e.target.checked ? 'remove' : 'keep' })} />
+        <span>Remove sections the page has nothing for (e.g. Legendary Actions). Unticked: they stay, blank.</span>
+      </label>
+      <label className="check">
+        <input type="checkbox" checked={rules.additions === 'add'} onChange={(e) => onChange({ ...rules, additions: e.target.checked ? 'add' : 'none' })} />
+        <span>
+          Add fields and sections the template does not have: fields in line, where they come in a statblock (e.g. Condition Immunities after Immunities), sections as new
+          boxes. Unticked: nothing is added; extra sections go into the template’s Notes box or description area, and the final preview lists anything left out.
+        </span>
+      </label>
+    </div>
+  )
+}
+
 function guessPageType(name: string): string {
   const n = name.toLowerCase()
   if (/stat\s*block|creature|monster|beast/.test(n)) return 'creature'
@@ -333,12 +402,13 @@ function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefini
   const [makeRecipe, setMakeRecipe] = useState(true)
   const listing = useApi<{ templates: LkTemplateListing[]; note: string }>('/api/lk-templates')
   const [choice, setChoice] = useState<Record<string, string>>({})
+  const [layoutChoice, setLayoutChoice] = useState<Record<string, 'exact' | 'fit'>>({})
   const [other, setOther] = useState('')
   const [otherType, setOtherType] = useState('npc')
   const action = useAction()
-  const copy = (resource: string, pageType: string) =>
+  const copy = (resource: string, pageType: string, layout: 'exact' | 'fit' = 'exact') =>
     action.run(async () => {
-      const result = await api.post<{ recipe: Recipe | null }>('/api/templates/copy', { resource, pageType, createRecipe: makeRecipe })
+      const result = await api.post<{ recipe: Recipe | null }>('/api/templates/copy', { resource, pageType, createRecipe: makeRecipe, layoutRules: LAYOUT_PRESETS[layout] })
       await onDone(result.recipe)
     })
   const typeSelect = (value: string, onChange: (v: string) => void, id: string) => (
@@ -353,8 +423,14 @@ function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefini
   return (
     <div className="confirm-box" style={{ marginBottom: '1rem' }}>
       <p>
-        Pick a LegendKeeper template and the kind of page it is for. The app reads its layout (this only reads from LegendKeeper) and saves it here as a local template. Pages made
-        with it are then created as copies of the template in LegendKeeper, so they keep its sidebar, icon, banner, other tabs and built-in boxes; the app fills the first page tab.
+        Pick a LegendKeeper template and the kind of page it is for. The app reads its layout (this only reads from LegendKeeper) and saves it here as a local template.
+        Pages made with it are created as copies of the template in LegendKeeper, so they keep its sidebar, icon, banner, other tabs and built-in boxes; the app fills
+        the first page tab.
+      </p>
+      <p>
+        Choose how new pages follow each template: <strong>exactly as the template</strong> (every field and section stays, blank when there is nothing for it,
+        and nothing is added) or <strong>fitted to each page</strong> (empty fields and sections are removed, and fields the template lacks are added in line, in
+        statblock order). You can change this later on the template, field by field.
       </p>
       <label className="check">
         <input type="checkbox" checked={makeRecipe} onChange={(e) => setMakeRecipe(e.target.checked)} />
@@ -370,12 +446,15 @@ function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefini
               <tr>
                 <th>LegendKeeper template</th>
                 <th>For page type</th>
+                <th>New pages</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {listing.data.templates.map((item) => {
                 const pageType = choice[item.id] ?? guessPageType(item.name)
+                // Statblocks usually fit the creature; other templates are usually kept exactly as they are.
+                const layout = layoutChoice[item.id] ?? (pageType === 'creature' ? 'fit' : 'exact')
                 return (
                   <tr key={item.id}>
                     <td>
@@ -388,7 +467,13 @@ function CopyFromLegendKeeper({ pageTypes, onDone }: { pageTypes: PageTypeDefini
                     </td>
                     <td>{typeSelect(pageType, (v) => setChoice({ ...choice, [item.id]: v }), `pt-${item.id}`)}</td>
                     <td>
-                      <Button variant="primary" busy={action.busy} onClick={() => void copy(item.id, pageType)}>
+                      <select aria-label="How new pages follow the template" value={layout} onChange={(e) => setLayoutChoice({ ...layoutChoice, [item.id]: e.target.value as 'exact' | 'fit' })}>
+                        <option value="exact">Exactly as the template</option>
+                        <option value="fit">Fitted to each page</option>
+                      </select>
+                    </td>
+                    <td>
+                      <Button variant="primary" busy={action.busy} onClick={() => void copy(item.id, pageType, layout)}>
                         Copy layout
                       </Button>
                     </td>

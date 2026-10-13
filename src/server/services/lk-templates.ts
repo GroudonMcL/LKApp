@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { newAppId } from '@/core/ids'
 import { LK_TEMPLATES_PARENT_ID, skeletonFromBlocks, summarizeLayout, type LkLayout } from '@/core/lk-layout'
 import { findBuiltInPageType } from '@/core/page-types'
-import { TemplateDefinition, type PageTemplate } from '@/core/template'
+import { LayoutRules, TemplateDefinition, type PageTemplate } from '@/core/template'
 import type { AppContext } from '../context'
 import type { Recipe } from '@/core/recipe'
 import type { ResourceSummary } from '../lk/types'
@@ -12,6 +12,8 @@ import { recordAudit } from './audit'
 import { requireProjectId } from './connection'
 import { ServiceError } from './errors'
 import { recipeFromTemplate } from './recipes'
+import { configBlockers } from './write'
+import { hasAllIds } from '@/core/template-fill'
 
 /**
  * LegendKeeper templates. Listing them and copying a layout are read-only towards LegendKeeper:
@@ -90,6 +92,8 @@ export const CopyLayoutInput = z.object({
   templateId: z.string().max(100).optional(),
   /** Also make a recipe that uses the new template (not when refreshing). */
   createRecipe: z.boolean().default(true),
+  /** How strictly pages follow the template; kept as they are when refreshing without one. */
+  layoutRules: LayoutRules.optional(),
 })
 
 /** Accepts a bare id or a LegendKeeper link and returns the resource id. */
@@ -146,6 +150,7 @@ export async function copyLayoutFromLegendKeeper(ctx: AppContext, input: unknown
     infoboxFields: [...new Set(summary.rows.flatMap((row) => row.fieldKeys))],
     includeSourcesSection: existing?.definition.includeSourcesSection ?? false,
     lkLayout: layout,
+    ...(parsed.data.layoutRules ? { layoutRules: parsed.data.layoutRules } : {}),
   })
   if (existing && existing.definition.pageType !== definition.pageType) {
     const inUse = ctx.repos.recipes.list().filter((recipe) => recipe.definition.templateId === existing.id)
@@ -180,4 +185,29 @@ export function layoutReport(template: PageTemplate) {
     fieldsWithoutRow: pageType.fields.filter((field) => !covered.has(field.key)).map((field) => field.label),
     droppedParts: layout.droppedParts,
   }
+}
+
+/**
+ * Prepares a LegendKeeper template so pages made from it need one write fewer: gives the blocks
+ * of its first page tab the ids LegendKeeper uses to address them (`assignBlockIds`). Nothing you
+ * can see changes. Without it, every new page needs this step on its own copy. Only on request,
+ * and only for a template copied into this app.
+ */
+export async function prepareLkTemplate(ctx: AppContext, localTemplateId: string, input: { confirm: boolean }) {
+  if (!input.confirm) throw new ServiceError(400, 'Confirm that the template may be prepared in LegendKeeper.')
+  const blockers = configBlockers(ctx)
+  if (blockers.length) throw new ServiceError(409, 'Writing is not possible yet.', blockers.map((b) => b.message), 'BLOCKED')
+  const local = ctx.repos.templates.get(localTemplateId)
+  const layout = local?.definition.lkLayout
+  if (!local || !layout || layout.sourceKind !== 'template') throw new ServiceError(404, 'This is not a template copied from a LegendKeeper template.')
+  const resource = await ctx.connector().getResource(layout.sourceResourceId)
+  if (!(await isLkTemplate(ctx, resource))) throw new ServiceError(409, `“${resource.name}” is no longer a LegendKeeper template.`)
+  const tab = [...resource.documents].filter((d) => d.type === 'page').sort((a, b) => ((a.rank ?? '') < (b.rank ?? '') ? -1 : 1))[0]
+  if (!tab) throw new ServiceError(409, `“${resource.name}” has no page tab.`)
+  const content = await ctx.connector().getDocumentContent(resource.id, tab.id)
+  if (hasAllIds(content.blocks)) return { prepared: false, already: true, name: resource.name }
+  await ctx.connector().assignBlockIds(resource.id, tab.id)
+  const after = await ctx.connector().getDocumentContent(resource.id, tab.id)
+  recordAudit(ctx, { operation: 'template.prepare', outcome: 'success', approval: 'approved', resourceId: resource.id, message: `Gave the blocks of “${resource.name}” (${tab.name}) their ids; nothing visible changed`, details: { templateId: localTemplateId, ok: hasAllIds(after.blocks) } })
+  return { prepared: true, already: false, name: resource.name }
 }

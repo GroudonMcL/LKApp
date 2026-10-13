@@ -19,7 +19,7 @@ import { getDraft, recipeForDraft, templateForDraft, validateWithRender } from '
 import { ServiceError } from './errors'
 import { isLkTemplate } from './lk-templates'
 import { isEmptyImage, skeletonFromBlocks } from '@/core/lk-layout'
-import { comparableContent, hasAllIds, planFill, type FillOp } from '@/core/template-fill'
+import { comparableContent, hasAllIds, hasUnwritable, planFill, type FillOp } from '@/core/template-fill'
 import { renderFromLayout } from '../lk/render-layout'
 
 /**
@@ -206,6 +206,9 @@ async function prepareInternal(ctx: AppContext, draftId: string, options: Prepar
   // Created from a LegendKeeper template: confirm it is still a template and say what it brings.
   const rendered = renderFor(ctx, draft, page, draft.plannedResourceId ?? 'a0000000000000000000000a')
   const fromTemplate = rendered.payload.templateId ? (synced?.template ?? null) : null
+  // A template that adds nothing: say what the source has that the page will not show.
+  const leftOut = notWrittenParts(ctx, draft, page)
+  if (leftOut.length) warnings.push(`The template “${synced?.template.name ?? 'used'}” adds nothing of its own, so these are not written: ${leftOut.join(', ')}. Change the template's layout rules to add them, or add a box for them to the template in LegendKeeper.`)
   if (synced?.changed) warnings.push(`The template “${synced.template.name}” was changed in LegendKeeper since its layout was copied; this preview uses it as it is now.`)
   const placement = await planPlacement(ctx, recipe, page.parentId, rendered.payload.name).catch((error) => ({
     placement: null,
@@ -443,12 +446,24 @@ function firstPageTab(resource: ResourceDetail) {
   return [...resource.documents].filter((d) => d.type === 'page').sort((a, b) => ((a.rank ?? '') < (b.rank ?? '') ? -1 : (a.rank ?? '') > (b.rank ?? '') ? 1 : 0))[0] ?? null
 }
 
+/** What the draft has that its template leaves no place for (only when the template adds nothing). */
+function notWrittenParts(ctx: AppContext, draft: Draft, page: CanonicalPage): string[] {
+  const recipe = recipeForDraft(ctx, draft)
+  const pageType = recipe ? resolvePageType(recipe) : null
+  if (!recipe || !pageType) return []
+  const { template } = templateForDraft(ctx, pageType, page, recipe)
+  if (!template.lkLayout || template.layoutRules.additions !== 'none') return []
+  const report = { leftOut: [] as string[] }
+  renderFromLayout(page, pageType, template.lkLayout, template.includeSourcesSection, { rules: template.layoutRules, report })
+  return report.leftOut
+}
+
 /** The draft laid out in the blocks of the template copy itself (ids kept, image slots kept). */
 function renderIntoCopy(ctx: AppContext, draft: Draft, copyBlocks: unknown[]): unknown[] {
   const recipe = recipeForDraft(ctx, draft)!
   const pageType = resolvePageType(recipe)!
   const { template } = templateForDraft(ctx, pageType, draft.page, recipe)
-  return renderFromLayout(draft.page, pageType, { ...template.lkLayout!, blocks: copyBlocks as AnyBlock[] }, template.includeSourcesSection, { keepEmptyImages: true })
+  return renderFromLayout(draft.page, pageType, { ...template.lkLayout!, blocks: copyBlocks as AnyBlock[] }, template.includeSourcesSection, { keepEmptyImages: true, rules: template.layoutRules })
 }
 
 /** Union, keeping order, ignoring case for duplicates. */
@@ -542,7 +557,9 @@ async function fillFromTemplate(ctx: AppContext, draftId: string, resourceId: st
     if (!state || state.resourceId !== resourceId) {
       step = 'reading its page tab'
       let content = await connector.getDocumentContent(resourceId, tab.id)
-      if (!hasAllIds(content.blocks)) {
+      // Ids are only needed to edit block by block, which only a tab with an empty image slot
+      // needs; otherwise the whole tab is written at once.
+      if (hasUnwritable(content.blocks) && !hasAllIds(content.blocks)) {
         step = 'preparing its page tab'
         await connector.assignBlockIds(resourceId, tab.id)
         writes++

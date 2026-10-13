@@ -85,3 +85,17 @@ as in 4.0.0.
 - The Windows app offers new versions: each passing build is published as a release, the app
   checks at startup and installs with one click (download, SHA-256 check, restart). Needs the
   repository to be public.
+
+## Follow-up (13 Oct): layout rules per template, fewer writes
+
+- Each template has layout rules, chosen when copying it: *exactly as the template* (empty fields
+  and sections stay blank, nothing added; extra sections go into its Notes box or description
+  area; anything with no place is listed in the final preview) or *fitted to each page* (empty
+  fields and sections removed; extra fields added in line, in statblock order; extra sections
+  as new boxes). The three rules can also be set one by one.
+- Fewer writes: empty spacer paragraphs are no longer deleted; a new block that comes where a
+  template block is removed reuses it (one replace instead of a delete and an insert; changing
+  a block's kind is accepted, **live**); the ids step is skipped when the tab has no empty image
+  slot (the tab is then written in one go: 3 writes per page); and **Speed up** gives a
+  template's blocks their ids once, so copies inherit them (copies keep the template's ids,
+  **live**) and skip that step.

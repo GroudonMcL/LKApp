@@ -12,8 +12,10 @@
  *   rows (Tags, Aliases) are never touched; example text it holds outside a field is removed;
  * - other blocks of the template are replaced in place (same id), or deleted when the page has
  *   nothing for them (unused sections, example paragraphs);
- * - new blocks (extra sections, the description, sources) are inserted next to their neighbour,
- *   each with an id chosen in advance, so repeating an insert can never add it twice.
+ * - new blocks (extra sections, the description, sources) take the place of a template block
+ *   that is removed at the same spot (one replace instead of a delete and an insert), or are
+ *   inserted next to their neighbour, each with an id chosen in advance, so repeating an insert
+ *   can never add it twice.
  *
  * When the tab has nothing LegendKeeper cannot take back, one whole-tab replace does the same
  * in a single write.
@@ -100,8 +102,25 @@ function diffList(current: AnyBlock[], desired: AnyBlock[], parentId: string | n
   const byId = new Map(current.filter((block) => typeof block.id === 'string').map((block) => [block.id as string, block]))
   const keptIds = new Set(desired.map((block) => block.id).filter((id): id is string => typeof id === 'string' && byId.has(id)))
 
+  // A new block that comes where a template block is removed takes that block's place: one
+  // replace instead of a delete and an insert.
+  const reuse = new Map<AnyBlock, string>()
+  let cursor = 0
+  for (const block of desired) {
+    if (typeof block.id === 'string' && keptIds.has(block.id)) {
+      cursor = current.findIndex((item) => item.id === block.id) + 1
+      continue
+    }
+    const spot = current[cursor]
+    if (spot && typeof spot.id === 'string' && !keptIds.has(spot.id) && !hasUnwritable(spot)) {
+      reuse.set(block, spot.id)
+      cursor++
+    }
+  }
+  const reused = new Set(reuse.values())
+
   // 1. Blocks of the template the page has no use for.
-  for (const block of current) if (typeof block.id === 'string' && !keptIds.has(block.id)) ops.push({ op: 'delete', blockId: block.id, label: labelOf(block) })
+  for (const block of current) if (typeof block.id === 'string' && !keptIds.has(block.id) && !reused.has(block.id)) ops.push({ op: 'delete', blockId: block.id, label: labelOf(block) })
 
   // 2. Kept blocks: changed ones are replaced in place, unless they hold something that cannot be
   //    written back (an image slot): then the infobox is edited field by field, and any other
@@ -109,7 +128,7 @@ function diffList(current: AnyBlock[], desired: AnyBlock[], parentId: string | n
   for (const block of desired) {
     const id = block.id as string | undefined
     const before = id ? byId.get(id) : undefined
-    if (!before || same(block, before)) continue
+    if (!before || !keptIds.has(id!) || same(block, before)) continue
     if (!hasUnwritable(block)) {
       ops.push({ op: 'replace', blockId: id!, block: writable(block), label: labelOf(block) })
     } else if (block.kind === 'infobox' && before.kind === 'infobox') {
@@ -122,13 +141,19 @@ function diffList(current: AnyBlock[], desired: AnyBlock[], parentId: string | n
     }
   }
 
-  // 3. New blocks, each next to the block before it (or before the first kept block, or as the
-  //    container's first child).
+  // 3. New blocks: in a removed block's place, or next to the block before them (or before the
+  //    first kept block, or as the container's first child).
   let previous: string | null = null
   const firstKept = desired.find((block) => typeof block.id === 'string' && keptIds.has(block.id))?.id as string | undefined
   for (const block of desired) {
     if (typeof block.id === 'string' && keptIds.has(block.id)) {
       previous = block.id
+      continue
+    }
+    const place = reuse.get(block)
+    if (place) {
+      ops.push({ op: 'replace', blockId: place, block: writable({ ...block, id: place }), label: labelOf(block) })
+      previous = place
       continue
     }
     const id = newId()

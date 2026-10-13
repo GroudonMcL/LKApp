@@ -7,8 +7,9 @@ import { findBuiltInPageType } from '@/core/page-types'
 import { RecipeDefinition } from '@/core/recipe'
 import { resolveTemplate } from '@/core/resolve'
 import { buildStructuralDraft } from '@/core/structural'
-import { TemplateDefinition } from '@/core/template'
+import { LAYOUT_PRESETS, TemplateDefinition } from '@/core/template'
 import { buildCreatePayload, renderPageBlocks } from '@/server/lk/render'
+import { renderFromLayout } from '@/server/lk/render-layout'
 import { validateAgainstSpec } from '../helpers/openapi-validator'
 
 const creature = findBuiltInPageType('creature')!
@@ -105,8 +106,11 @@ describe('layouts copied from LegendKeeper', () => {
       if (block.kind === 'keyValue') for (const row of block.rows) templateKeys.push(row.key)
     })
     const keys = Object.keys(rows)
-    expect(keys.slice(0, templateKeys.length)).toEqual(templateKeys)
-    expect(keys.slice(templateKeys.length)).toEqual(expect.arrayContaining(['Size', 'Creature type', 'Alignment', 'Gear']))
+    expect(keys.filter((key) => templateKeys.includes(key))).toEqual(templateKeys)
+    // Extra fields in line, where they come in a statblock.
+    expect(keys.slice(0, 4)).toEqual(['Size', 'Creature type', 'Alignment', 'Armour Class'])
+    expect(keys.indexOf('Saving Throws')).toBe(keys.indexOf('Skills') - 1)
+    expect(keys.indexOf('Gear')).toBe(keys.indexOf('Senses') - 1)
 
     // Grid and inline displays are kept.
     const displays: string[] = []
@@ -149,7 +153,51 @@ describe('layouts copied from LegendKeeper', () => {
     const withSource = TemplateDefinition.parse({ ...template(), lkLayout: { ...layout(), blocks: [{ kind: 'keyValue', rows: [{ key: 'Source:', content: [] }, { key: 'Armour Class', content: [] }] }] } })
     const rows = rowsOf(renderPageBlocks(page, { pageType: creature, template: withSource }))
     expect(rows['Source:']).toBe('Test')
-    expect(Object.keys(rows).slice(0, 2)).toEqual(['Source:', 'Armour Class'])
+    expect(Object.keys(rows).indexOf('Armour Class')).toBeGreaterThan(Object.keys(rows).indexOf('Source:'))
+  })
+
+  it('fitted to the page: empty fields and sections removed, extra fields in line', () => {
+    const fitted = TemplateDefinition.parse({ ...template(), layoutRules: LAYOUT_PRESETS.fit })
+    const blocks = renderPageBlocks(goblinDraft(), { pageType: creature, template: fitted })
+    const rows = rowsOf(blocks)
+    expect(rows).not.toHaveProperty('Resistances')
+    expect(rows).not.toHaveProperty('Immunities')
+    expect(Object.keys(rows).slice(0, 4)).toEqual(['Size', 'Creature type', 'Alignment', 'Armour Class'])
+    const titled = blocks.filter((block) => block.kind === 'textField').map((block) => (block as { title?: string }).title)
+    expect(titled).toEqual(['Traits', 'Actions', 'Reactions'])
+  })
+
+  it('exactly as the template: every field and section stays, nothing is added, and what has no place is reported', () => {
+    const exact = TemplateDefinition.parse({ ...template(), layoutRules: LAYOUT_PRESETS.exact })
+    const report = { leftOut: [] as string[] }
+    const blocks = renderFromLayout(goblinDraft(), creature, exact.lkLayout!, false, { rules: exact.layoutRules, report })
+    const rows = rowsOf(blocks)
+    const templateKeys: string[] = []
+    walk(templateBlocks as Block[], (block) => {
+      if (block.kind === 'keyValue') for (const row of block.rows) templateKeys.push(row.key)
+    })
+    expect(Object.keys(rows)).toEqual(templateKeys) // no field added, none removed
+    expect(rows.Resistances).toBe('')
+    const titled = blocks.filter((block) => block.kind === 'textField').map((block) => (block as { title?: string }).title)
+    expect(titled).toEqual(['Traits', 'Actions', 'Bonus Actions', 'Legendary Actions']) // empty ones kept, no new box
+    expect(plainText(blocks)).toContain('Reactions') // in the description area, under a bold heading
+    expect(report.leftOut).toEqual(expect.arrayContaining(['the field “Size”', 'the field “Gear”']))
+  })
+
+  it('exactly as the template: extra sections go into its Notes box', () => {
+    const withNotes = { ...layout(), blocks: [...layout().blocks.filter((block) => block.kind !== 'paragraph' && block.kind !== 'heading' && block.kind !== 'rule'), { kind: 'textField', title: 'Notes', isTitleHidden: false, children: [{ kind: 'paragraph', content: [{ text: 'Example notes' }] }] }] }
+    const report = { leftOut: [] as string[] }
+    const blocks = renderFromLayout(goblinDraft(), creature, withNotes, false, { rules: LAYOUT_PRESETS.exact, report })
+    const notes = blocks.find((block) => block.kind === 'textField' && (block as { title?: string }).title === 'Notes')!
+    expect(plainText([notes])).toContain('Reactions')
+    expect(plainText([notes])).not.toContain('Example notes')
+    expect(report.leftOut.every((part) => part.startsWith('the field'))).toBe(true)
+  })
+
+  it('keeps empty spacer paragraphs as they are', () => {
+    const spaced = { ...layout(), blocks: [...layout().blocks, { kind: 'paragraph', content: [] }] }
+    const blocks = renderFromLayout(goblinDraft(), creature, spaced, false)
+    expect(blocks.at(-1)).toEqual({ kind: 'paragraph', content: [] })
   })
 
   it('writes only confirmed values', () => {
